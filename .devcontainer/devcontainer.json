@@ -1,5 +1,5 @@
 {
     "image":"schoumi/yotta:latest",
     "workspaceFolder": "/workspaces/",
-    "remoteUser": "vscode"
+    "remoteUser": "ubuntu"
 }
