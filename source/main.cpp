@@ -31,6 +31,7 @@ int main()
 {
     // Initialise the micro:bit runtime.
     uBit.init();
+    int count = 0;
 
     // Insert your code here!
     //uBit.display.scroll("HELLO WORLD! :)");
@@ -43,8 +44,13 @@ int main()
             uBit.display.scroll("B");
         }
 
-        int temp = uBit.thermometer.getTemperature();
-        uBit.display.scroll(temp);
+        //int temp = uBit.thermometer.getTemperature();
+        //uBit.display.scroll(temp);
+
+        if (uBit.accelerometer.getX() < -200) {
+            count++;
+        }
+        uBit.display.scroll(count);
 
     }
 
