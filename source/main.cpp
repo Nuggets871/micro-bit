@@ -33,7 +33,20 @@ int main()
     uBit.init();
 
     // Insert your code here!
-    uBit.display.scroll("HELLO WORLD! :)");
+    //uBit.display.scroll("HELLO WORLD! :)");
+
+    while(1) {
+        if (uBit.buttonA.isPressed()) {
+            uBit.display.scroll("A");
+        }
+        if (uBit.buttonB.isPressed()) {
+            uBit.display.scroll("B");
+        }
+
+        int temp = uBit.thermometer.getTemperature();
+        uBit.display.scroll(temp);
+
+    }
 
     // If main exits, there may still be other fibers running or registered event handlers etc.
     // Simply release this fiber, which will mean we enter the scheduler. Worse case, we then
