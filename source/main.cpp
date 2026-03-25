@@ -24,6 +24,7 @@ DEALINGS IN THE SOFTWARE.
 */
 
 #include "MicroBit.h"
+#include "neopixel.h"
 
 MicroBit uBit;
 
@@ -80,25 +81,47 @@ int main()
     // }
 
 
-    // TP2 - Exercice 1
+// TP2 - Exercice 1
+    // while (1) {
+    //     // On set le pin2 vert
+    //     uBit.io.P2.setDigitalValue(1);
+    //     uBit.io.P1.setDigitalValue(0);
+    //     uBit.io.P0.setDigitalValue(0);
+    //     uBit.sleep(3000);
+
+    //     // On set le pin1 jaune
+    //     uBit.io.P2.setDigitalValue(0);
+    //     uBit.io.P1.setDigitalValue(1);
+    //     uBit.io.P0.setDigitalValue(0);
+    //     uBit.sleep(1000);
+
+    //     // On set le pin0 rouge
+    //     uBit.io.P2.setDigitalValue(0);
+    //     uBit.io.P1.setDigitalValue(0);
+    //     uBit.io.P0.setDigitalValue(1);
+    //     uBit.sleep(3000);
+    // }
+
+// TP2 - exo 2
+    neopixel_strip_t strip;
+    neopixel_init(&strip, (uint8_t)MICROBIT_PIN_P0, 1); // 1 LED NeoPixel sur P0
+    uBit.sleep(10); // Laisse la ligne DATA se stabiliser apres init.
+
     while (1) {
-        // On set le pin2 vert
-        uBit.io.P2.setDigitalValue(1);
-        uBit.io.P1.setDigitalValue(0);
-        uBit.io.P0.setDigitalValue(0);
-        uBit.sleep(3000);
+        // Bleu
+        neopixel_set_color(&strip, 0, 0, 0, 255);
+        neopixel_show(&strip);
+        uBit.sleep(250);
 
-        // On set le pin1 jaune
-        uBit.io.P2.setDigitalValue(0);
-        uBit.io.P1.setDigitalValue(1);
-        uBit.io.P0.setDigitalValue(0);
-        uBit.sleep(1000);
+        // Blanc
+        neopixel_set_color(&strip, 0, 255, 255, 255);
+        neopixel_show(&strip);
+        uBit.sleep(250);
 
-        // On set le pin0 rouge
-        uBit.io.P2.setDigitalValue(0);
-        uBit.io.P1.setDigitalValue(0);
-        uBit.io.P0.setDigitalValue(1);
-        uBit.sleep(3000);
+        // Rouge
+        neopixel_set_color(&strip, 0, 255, 0, 0);
+        neopixel_show(&strip);
+        uBit.sleep(250);
     }
 
 
