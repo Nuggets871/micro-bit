@@ -125,20 +125,42 @@ int main()
     // }
 
 // TP2 - exo 3
+    // uBit.init();
+
+    // while (1) {
+    //     int temp = uBit.thermometer.getTemperature();
+    //     int light = uBit.display.readLightLevel();
+
+    //     uBit.serial.printf("Temp: %d C\n", temp);
+    //     uBit.serial.printf("Lumiere: %d\n", light);
+
+    //     uBit.sleep(1000);
+    // }
+
+    // On utilise putty pour voir le retour du port serial
+
+
+
+// TP2 - exo 4
     uBit.init();
 
     while (1) {
         int temp = uBit.thermometer.getTemperature();
         int light = uBit.display.readLightLevel();
 
+        // Simulation capteurs (si pas de driver)
+        int pressure = 1000 + (temp % 10);
+        int humidity = 40 + (temp % 20);
+        int uv = light / 50;
+
         uBit.serial.printf("Temp: %d C\n", temp);
-        uBit.serial.printf("Lumiere: %d\n", light);
+        uBit.serial.printf("Pressure: %d hPa\n", pressure);
+        uBit.serial.printf("Humidity: %d %%\n", humidity);
+        uBit.serial.printf("Lumiere: %d lx\n", light);
+        uBit.serial.printf("UV: %d\n\n", uv);
 
-        uBit.sleep(1000);
+        uBit.sleep(2000);
     }
-
-    // On utilise putty pour voir le retour du port serial
-
 
 
     // If main exits, there may still be other fibers running or registered event handlers etc.
