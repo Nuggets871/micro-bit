@@ -28,6 +28,97 @@ DEALINGS IN THE SOFTWARE.
 
 MicroBit uBit;
 
+// ======================
+// CONFIG I2C
+// ======================
+#define OLED_ADDR  0x3C
+#define BME280_ADDR 0x76
+
+// ======================
+// OLED
+// ======================
+void writeCommand(uint8_t cmd) {
+    char data[2] = {0x00, (char)cmd};
+    uBit.i2c.write(OLED_ADDR << 1, data, 2);
+}
+
+void writeData(uint8_t dataByte) {
+    char data[2] = {0x40, (char)dataByte};
+    uBit.i2c.write(OLED_ADDR << 1, data, 2);
+}
+
+void initOLED() {
+    writeCommand(0xAE);
+    writeCommand(0xA6);
+    writeCommand(0x20);
+    writeCommand(0x00);
+    writeCommand(0xAF);
+}
+
+void setCursor(int page, int col) {
+    writeCommand(0xB0 + page);
+    writeCommand(0x00 + (col & 0x0F));
+    writeCommand(0x10 + ((col >> 4) & 0x0F));
+}
+
+void displayText(const char* text) {
+    setCursor(0, 0);
+    while (*text) {
+        writeData(*text++);
+    }
+}
+
+// ======================
+// BME280
+// ======================
+uint16_t dig_T1;
+int16_t dig_T2, dig_T3;
+int32_t t_fine;
+
+uint8_t read8(uint8_t reg) {
+    char cmd[1] = {(char)reg};
+    char data[1];
+    uBit.i2c.write(BME280_ADDR << 1, cmd, 1, true);
+    uBit.i2c.read(BME280_ADDR << 1, data, 1);
+    return data[0];
+}
+
+uint16_t read16(uint8_t reg) {
+    return read8(reg) | (read8(reg + 1) << 8);
+}
+
+int16_t readS16(uint8_t reg) {
+    return (int16_t)read16(reg);
+}
+
+void readCalibration() {
+    dig_T1 = read16(0x88);
+    dig_T2 = readS16(0x8A);
+    dig_T3 = readS16(0x8C);
+}
+
+void initBME280() {
+    char ctrl_hum[2] = {0xF2, 0x01};
+    uBit.i2c.write(BME280_ADDR << 1, ctrl_hum, 2);
+
+    char ctrl_meas[2] = {0xF4, 0x27};
+    uBit.i2c.write(BME280_ADDR << 1, ctrl_meas, 2);
+
+    readCalibration();
+}
+
+int32_t readTemperatureBME280() {
+    int32_t adc_T = (read8(0xFA) << 12) | (read8(0xFB) << 4) | (read8(0xFC) >> 4);
+
+    int32_t var1 = ((((adc_T >> 3) - ((int32_t)dig_T1 << 1))) * ((int32_t)dig_T2)) >> 11;
+    int32_t var2 = (((((adc_T >> 4) - ((int32_t)dig_T1)) *
+                     ((adc_T >> 4) - ((int32_t)dig_T1))) >> 12) *
+                     ((int32_t)dig_T3)) >> 14;
+
+    t_fine = var1 + var2;
+    return (t_fine * 5 + 128) >> 8; // °C * 100
+}
+
 int main()
 {
     // Initialise the micro:bit runtime.
@@ -142,26 +233,63 @@ int main()
 
 
 // TP2 - exo 4
-    uBit.init();
+    // uBit.init();
+
+    // while (1) {
+    //     int temp = uBit.thermometer.getTemperature();
+    //     int light = uBit.display.readLightLevel();
+
+    //     // Simulation capteurs (si pas de driver)
+    //     int pressure = 1000 + (temp % 10);
+    //     int humidity = 40 + (temp % 20);
+    //     int uv = light / 50;
+
+    //     uBit.serial.printf("Temp: %d C\n", temp);
+    //     uBit.serial.printf("Pressure: %d hPa\n", pressure);
+    //     uBit.serial.printf("Humidity: %d %%\n", humidity);
+    //     uBit.serial.printf("Lumiere: %d lx\n", light);
+    //     uBit.serial.printf("UV: %d\n\n", uv);
+
+    //     uBit.sleep(2000);
+    // }
+
+
+
+// TP2 - exo 5
+
+    initOLED();
+    initBME280();
+
+    char buffer[32];
 
     while (1) {
-        int temp = uBit.thermometer.getTemperature();
-        int light = uBit.display.readLightLevel();
+        // Températures
+        int tempMicro = uBit.thermometer.getTemperature();
+        float tempBME = readTemperatureBME280() / 100.0;
 
-        // Simulation capteurs (si pas de driver)
-        int pressure = 1000 + (temp % 10);
-        int humidity = 40 + (temp % 20);
-        int uv = light / 50;
-
-        uBit.serial.printf("Temp: %d C\n", temp);
-        uBit.serial.printf("Pressure: %d hPa\n", pressure);
-        uBit.serial.printf("Humidity: %d %%\n", humidity);
-        uBit.serial.printf("Lumiere: %d lx\n", light);
-        uBit.serial.printf("UV: %d\n\n", uv);
-
+        // --- Affichage noms ---
+        displayText("Groupe:");
         uBit.sleep(2000);
-    }
 
+        displayText("Ali & Sara");
+        uBit.sleep(2000);
+
+        // --- Temp micro:bit ---
+        sprintf(buffer, "T micro: %dC", tempMicro);
+        displayText(buffer);
+        uBit.sleep(2000);
+
+        // --- Temp BME280 ---
+        sprintf(buffer, "T meteo: %.2fC", tempBME);
+        displayText(buffer);
+        uBit.sleep(2000);
+
+        // --- Comparaison ---
+        float diff = tempMicro - tempBME;
+        sprintf(buffer, "Diff: %.2fC", diff);
+        displayText(buffer);
+        uBit.sleep(3000);
+    }
 
     // If main exits, there may still be other fibers running or registered event handlers etc.
     // Simply release this fiber, which will mean we enter the scheduler. Worse case, we then

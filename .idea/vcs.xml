@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/yotta_modules/ble" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/yotta_modules/ble-nrf51822" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/yotta_modules/mbed-classic" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/yotta_modules/microbit" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/yotta_modules/microbit-dal" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/yotta_modules/nrf51-sdk" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/yotta_targets/bbc-microbit-classic-gcc" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/yotta_targets/mbed-gcc" vcs="Git" />
+  </component>
+</project>
