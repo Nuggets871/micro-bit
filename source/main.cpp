@@ -1,43 +1,69 @@
-/*
-The MIT License (MIT)
-
-Copyright (c) 2016 British Broadcasting Corporation.
-This software is provided by Lancaster University by arrangement with the BBC.
-
-Permission is hereby granted, free of charge, to any person obtaining a
-copy of this software and associated documentation files (the "Software"),
-to deal in the Software without restriction, including without limitation
-the rights to use, copy, modify, merge, publish, distribute, sublicense,
-and/or sell copies of the Software, and to permit persons to whom the
-Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-*/
-
 #include "MicroBit.h"
-#include "neopixel.h"
+#include <stdio.h>
 
 MicroBit uBit;
 
-int main()
-{
-    // Initialise the micro:bit runtime.
-    uBit.init();
+#define BME280_ADDR (0x76 << 1)
 
+uint16_t dig_T1;
+int16_t dig_T2, dig_T3;
 
-
-    // If main exits, there may still be other fibers running or registered event handlers etc.
-    // Simply release this fiber, which will mean we enter the scheduler. Worse case, we then
-    // sit in the idle task forever, in a power efficient sleep.
-    release_fiber();
+int readRaw(uint8_t reg) {
+    char cmd[1] = {(char)reg};
+    char data[1];
+    if (uBit.i2c.write(BME280_ADDR, cmd, 1, true) != 0) return -999;
+    if (uBit.i2c.read(BME280_ADDR, data, 1) != 0) return -999;
+    return (uint8_t)data[0];
 }
 
+void initBME280() {
+    char ctrl[2] = {0xF4, 0x27};
+    uBit.i2c.write(BME280_ADDR, ctrl, 2);
+    dig_T1 = readRaw(0x88) | (readRaw(0x89) << 8);
+    dig_T2 = (int16_t)(readRaw(0x8A) | (readRaw(0x8B) << 8));
+    dig_T3 = (int16_t)(readRaw(0x8C) | (readRaw(0x8D) << 8));
+}
+
+int getSimpleTemp() {
+    int32_t adc_T = (readRaw(0xFA) << 12) | (readRaw(0xFB) << 4) | (readRaw(0xFC) >> 4);
+    if (adc_T < 0) return -999;
+
+    int32_t var1 = ((((adc_T >> 3) - ((int32_t)dig_T1 << 1))) * ((int32_t)dig_T2)) >> 11;
+    int32_t var2 = (((((adc_T >> 4) - ((int32_t)dig_T1)) * ((adc_T >> 4) - ((int32_t)dig_T1))) >> 12) * ((int32_t)dig_T3)) >> 14;
+    int32_t t_fine = var1 + var2;
+    return (t_fine * 5 + 128) >> 8; 
+}
+
+
+// commandes pour faire comme putty sous mac :
+// ouvrir terminal
+// ls /dev/cu.usbmodem*
+// -> Cela devrait te retourner quelque chose comme /dev/cu.usbmodem14102. puis:
+// screen /dev/cu.usbmodemXXXXX 115200
+// Remplacer les XXXX par le numéro trouvé à l'étape precedente
+// Pour quitter : Ctrl + A puis Ctrl + K et confirme avec y
+
+int main() {
+    uBit.init();
+    uBit.serial.baud(115200); // Vitesse de communication
+    initBME280();
+
+    uBit.display.scroll("DEBUG MODE");
+
+    while (1) {
+        int val = getSimpleTemp();
+        int tempC = val / 100;
+
+        // --- ENVOI VERS PUTTY ---
+        // On affiche la valeur brute 'val' et la valeur divisée 'tempC'
+        uBit.serial.printf("Valeur brute: %d | Temp calculee: %d C\r\n", val, tempC);
+
+        if (val == -999) {
+            uBit.display.print("X");
+        } else {
+            uBit.display.scroll(tempC);
+        }
+        
+        uBit.sleep(2000);
+    }
+}
