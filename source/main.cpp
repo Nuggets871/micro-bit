@@ -4,13 +4,13 @@
 MicroBit uBit;
 #define BME280_ADDR (0x76 << 1)
 
+// Calibration BME280
 uint16_t dig_T1;
 int16_t dig_T2, dig_T3;
 int32_t t_fine;
-ManagedString mode = "T";
 int last_val = 0;
-int loop_count = 0; // Compteur pour ralentir l'affichage
 
+// Fonctions de lecture I2C
 int read8(uint8_t reg) {
     char cmd[1] = {(char)reg};
     char data[1];
@@ -50,43 +50,34 @@ int getTemperatureInt() {
 
 int main() {
     uBit.init();
-    uBit.serial.baud(115200); 
+    
+    // Configuration Radio
+    uBit.radio.enable();
+    uBit.radio.setGroup(10); // Groupe 10
+    
     initBME280();
+    uBit.display.scroll("OBJET");
 
     char buffer[64];
 
     while (1) {
-        // 1. Lecture des capteurs
         int valRaw = getTemperatureInt(); 
         int lum = uBit.display.readLightLevel();
         
-        // 2. Envoi Serial au Mac (TRÈS RAPIDE)
         int tEnt = valRaw / 100;
         int tDec = (valRaw % 100) / 10;
-        sprintf(buffer, "G1:T:%d.%d;L:%d\r\n", tEnt, tDec, lum);
-        uBit.serial.send(buffer);
 
-        // 3. Lecture des commandes clavier
-        int c = uBit.serial.read(ASYNC); 
-        if (c >= 0) {
-            char cmd = (char)c;
-            if (cmd == 'T' || cmd == 't') mode = "T";
-            if (cmd == 'L' || cmd == 'l') mode = "L";
-            uBit.display.print(mode); // Affiche juste la lettre pour confirmer
-        }
+        // Préparation du message formaté
+        sprintf(buffer, "G1:T:%d.%d;L:%d", tEnt, tDec, lum);
+        
+        // Envoi par Radio
+        uBit.radio.datagram.send(buffer);
 
-        // 4. Affichage sur les LEDs (Seulement tous les 10 tours pour ne pas bloquer)
-        if (loop_count % 10 == 0) {
-            if (mode == "T") {
-                sprintf(buffer, "%d.%dC", tEnt, tDec);
-            } else {
-                sprintf(buffer, "L%d", lum);
-            }
-            // On utilise scroll avec seulement 2 arguments (vitesse 60)
-            uBit.display.scroll(buffer, 60);
-        }
+        // Petit flash au centre pour dire "J'envoie"
+        uBit.display.image.setPixelValue(2,2, 255);
+        uBit.sleep(100);
+        uBit.display.image.setPixelValue(2,2, 0);
 
-        loop_count++;
-        uBit.sleep(200); // La boucle tourne toutes les 200ms
+        uBit.sleep(900); // Total ~1 seconde par envoi
     }
 }
