@@ -1,0 +1,9 @@
+#ifndef BUILD_ROLE_H
+#define BUILD_ROLE_H
+
+#define BUILD_ROLE_SENDER 1
+#define BUILD_ROLE_RECEIVER 2
+
+#define BUILD_ROLE BUILD_ROLE_RECEIVER
+
+#endif

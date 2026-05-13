@@ -1,5 +1,8 @@
 {
     "image":"schoumi/yotta:latest",
     "workspaceFolder": "/workspaces/",
-    "remoteUser": "ubuntu"
+    "remoteUser": "ubuntu",
+    "mounts": [
+        "source=/Volumes,target=/host/Volumes,type=bind,consistency=cached"
+    ]
 }
