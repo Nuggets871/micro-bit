@@ -1,5 +1,8 @@
 #include "MicroBit.h"
+#include "bme280.h"
 #include "build_role.h"
+#include <stdio.h>
+#include <string.h>
 
 #if BUILD_ROLE == BUILD_ROLE_SENDER
 
@@ -11,8 +14,58 @@ const int RADIO_POWER = 7;
 const int ACK_WAIT_MS = 700;
 const int POLL_DELAY_MS = 50;
 const char *PROTOCOL_PREFIX = "IOT1|";
+const char *SHARED_SECRET = "MB26";
+const char *FIRMWARE_TAG = "S5";
 
 MicroBit uBit;
+
+uint16_t computeAuthTag(const char *body) {
+    uint32_t hash = 2166136261u;
+
+    for (const char *cursor = body; *cursor != '\0'; ++cursor) {
+        hash ^= (uint8_t)*cursor;
+        hash *= 16777619u;
+    }
+
+    for (const char *cursor = SHARED_SECRET; *cursor != '\0'; ++cursor) {
+        hash ^= (uint8_t)*cursor;
+        hash *= 16777619u;
+    }
+
+    return (uint16_t)((hash >> 16) ^ (hash & 0xFFFF));
+}
+
+void buildAuthenticatedMessage(const char *body, char *messageBuffer, size_t messageBufferSize) {
+    snprintf(messageBuffer, messageBufferSize, "%s|C%04X", body, computeAuthTag(body));
+}
+
+bool hasProtocolPrefix(const ManagedString &message) {
+    return message.length() >= 5 && strncmp(message.toCharArray(), PROTOCOL_PREFIX, 5) == 0;
+}
+
+bool extractValidatedBody(const ManagedString &message, char *bodyBuffer, size_t bodyBufferSize) {
+    const char *raw = message.toCharArray();
+    const char *tagSeparator = strrchr(raw, '|');
+
+    if (tagSeparator == NULL || tagSeparator[1] != 'C') {
+        return false;
+    }
+
+    int bodyLength = tagSeparator - raw;
+    if (bodyLength <= 0 || bodyLength >= (int)bodyBufferSize) {
+        return false;
+    }
+
+    memcpy(bodyBuffer, raw, bodyLength);
+    bodyBuffer[bodyLength] = '\0';
+
+    unsigned int receivedTag = 0;
+    if (sscanf(tagSeparator + 2, "%4x", &receivedTag) != 1) {
+        return false;
+    }
+
+    return computeAuthTag(bodyBuffer) == (uint16_t)receivedTag;
+}
 
 void initRadio() {
     uBit.radio.enable();
@@ -40,25 +93,60 @@ void showErrorMarker() {
     uBit.display.image.setPixelValue(4, 4, 255);
 }
 
-bool waitForAck(const ManagedString &expectedAck) {
+bool waitForAck(const char *expectedAckBody) {
+    char bodyBuffer[32];
+
     for (int elapsed = 0; elapsed < ACK_WAIT_MS; elapsed += POLL_DELAY_MS) {
         ManagedString incoming = uBit.radio.datagram.recv();
 
-        if (incoming == expectedAck) {
+        if (!hasProtocolPrefix(incoming)) {
+            uBit.sleep(POLL_DELAY_MS);
+            continue;
+        }
+
+        if (!extractValidatedBody(incoming, bodyBuffer, sizeof(bodyBuffer))) {
+            uBit.serial.send("RX rejetee: auth invalide\r\n");
+            uBit.sleep(POLL_DELAY_MS);
+            continue;
+        }
+
+        if (strcmp(bodyBuffer, expectedAckBody) == 0) {
             uBit.serial.send("RX: ");
             uBit.serial.send(incoming + "\r\n");
             return true;
         }
 
-        if (incoming.length() > 0 && incoming.substring(0, 5) == ManagedString(PROTOCOL_PREFIX)) {
+        if (incoming.length() > 0) {
             uBit.serial.send("RX inattendu: ");
-            uBit.serial.send(incoming + "\r\n");
+            uBit.serial.send(ManagedString(bodyBuffer));
+            uBit.serial.send("\r\n");
         }
 
         uBit.sleep(POLL_DELAY_MS);
     }
 
     return false;
+}
+
+void readSensors(bme280 *environmentSensor, bool environmentSensorReady, int *temperature, int *lightLevel, int *humidity, int *pressure) {
+    *temperature = uBit.thermometer.getTemperature();
+    *lightLevel = uBit.display.readLightLevel();
+    *humidity = -1;
+    *pressure = -1;
+
+    if (!environmentSensorReady) {
+        return;
+    }
+
+    uint32_t rawPressure = 0;
+    int32_t rawTemperature = 0;
+    uint16_t rawHumidity = 0;
+
+    if (environmentSensor->sensor_read(&rawPressure, &rawTemperature, &rawHumidity) == 0) {
+        *temperature = environmentSensor->compensate_temperature(rawTemperature) / 100;
+        *humidity = environmentSensor->compensate_humidity(rawHumidity) / 100;
+        *pressure = environmentSensor->compensate_pressure(rawPressure) / 100;
+    }
 }
 
 }
@@ -68,14 +156,36 @@ int main() {
     uBit.serial.baud(115200);
     initRadio();
 
-    uBit.display.scroll("S");
+    bme280 environmentSensor(&uBit, &uBit.i2c);
+    bool environmentSensorReady = environmentSensor.probe_sensor() == 1;
+
+    uBit.display.scroll(FIRMWARE_TAG);
+    uBit.serial.send("BOOT: ");
+    uBit.serial.send(ManagedString(FIRMWARE_TAG));
+    uBit.serial.send(" GROUP=83 PREFIX=IOT1| MODE=SEC\r\n");
+    if (environmentSensorReady) {
+        uBit.serial.send("SENSOR: BME280 OK\r\n");
+    } else {
+        uBit.serial.send("SENSOR: BME280 ABSENT, fallback temp interne\r\n");
+    }
 
     int sequence = 0;
 
     while (1) {
-        ManagedString suffix(sequence);
-        ManagedString message = ManagedString(PROTOCOL_PREFIX) + ManagedString("PING:") + suffix;
-        ManagedString expectedAck = ManagedString(PROTOCOL_PREFIX) + ManagedString("ACK:") + suffix;
+        int temperature = 0;
+        int lightLevel = 0;
+        int humidity = -1;
+        int pressure = -1;
+        char bodyBuffer[32];
+        char messageBuffer[40];
+        char ackBodyBuffer[24];
+
+        readSensors(&environmentSensor, environmentSensorReady, &temperature, &lightLevel, &humidity, &pressure);
+        snprintf(bodyBuffer, sizeof(bodyBuffer), "%sD:%d|%d|%d|%d|%d", PROTOCOL_PREFIX, sequence, temperature, lightLevel, humidity, pressure);
+        snprintf(ackBodyBuffer, sizeof(ackBodyBuffer), "%sA:%d", PROTOCOL_PREFIX, sequence);
+        buildAuthenticatedMessage(bodyBuffer, messageBuffer, sizeof(messageBuffer));
+
+        ManagedString message(messageBuffer);
 
         showSendMarker();
         uBit.radio.datagram.send(message);
@@ -84,7 +194,7 @@ int main() {
         uBit.serial.send(message);
         uBit.serial.send("\r\n");
 
-        if (waitForAck(expectedAck)) {
+        if (waitForAck(ackBodyBuffer)) {
             showAckMarker();
         } else {
             showErrorMarker();

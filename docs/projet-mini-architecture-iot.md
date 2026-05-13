@@ -4,6 +4,10 @@
 Document complementaire (implementation pas-a-pas):
 - docs/guide-implementation-iot.md
 
+Documentation detaillee de l'implementation validee:
+- docs/compte-rendu-realisation-radio-capteur-securite.md
+- docs/protocole-radio-final.md
+
 ## 1. Contexte du projet
 Ce mini-projet consiste a concevoir et implementer une architecture IoT complete autour de trois briques principales :
 - Objet connecte (micro:bit + capteurs + ecran OLED)

@@ -6,6 +6,10 @@ Ce document explique comment realiser concrètement le TP IoT avec le code du pr
 Il complete le document de cadrage:
 - docs/projet-mini-architecture-iot.md
 
+Documents de reference sur l'etat final valide:
+- docs/compte-rendu-realisation-radio-capteur-securite.md
+- docs/protocole-radio-final.md
+
 ## 1.1 Materiel disponible (votre groupe)
 - 2 cartes micro:bit
 - 1 breadboard
@@ -34,33 +38,46 @@ Consequences pratiques:
 - Micro:bit B (passerelle): recoit la radio et transfere sur UART vers le serveur, puis renvoie les configurations vers A
 
 ## 3. Etat actuel du code dans ce repo
-Le fichier principal [source/main.cpp](source/main.cpp) implemente une passerelle serie-radio simple:
-- Initialisation micro:bit
-- UART a 115200
-- Radio activee sur le groupe 10
-- Pont bidirectionnel:
-  - message radio recu -> envoye sur serie
-  - message serie recu (jusqu'a \n) -> envoye en radio
+L'etat final valide du repo n'est plus un simple bridge radio/serie.
 
-Cela permet deja de tester la brique centrale:
-- reception des messages capteurs
-- transmission de configurations vers l'objet
+Le projet implemente maintenant deux firmwares distincts:
+- source/main.cpp : sender final S5
+- source/main2.cpp : receiver final R5
+
+Fonctionnement actuel:
+- radio bidirectionnelle sur le groupe 83
+- prefixe de protocole IOT1|
+- lecture du capteur BME280 cote sender
+- envoi des donnees T, L, H, P
+- ACK retour cote receiver
+- verification d'un tag d'integrite sur chaque trame
+
+Voir pour le detail complet:
+- docs/compte-rendu-realisation-radio-capteur-securite.md
+- docs/protocole-radio-final.md
 
 ## 4. Build et flash
 ### 4.1 Compiler
 Depuis la racine du projet:
 ```bash
-make build
+make build-sender
+make build-receiver
 ```
 
 ### 4.2 Flasher la carte
 ```bash
-make flash
+make flash-receiver
+make flash-sender
 ```
 
-Le Makefile gere:
-- copie locale vers le volume MICROBIT quand il est monte
-- fallback SCP vers macOS si le volume n'est pas visible dans le container
+Le workflow recommande sur macOS est:
+- brancher une seule carte micro:bit a la fois
+- flasher le receiver
+- debrancher la carte
+- brancher le sender
+- flasher le sender
+
+Le Makefile gere une copie locale vers le volume MICROBIT expose dans le conteneur.
 
 ### 4.3 Verification serie (Linux/macOS)
 Verifier le port:
