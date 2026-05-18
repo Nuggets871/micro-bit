@@ -111,8 +111,18 @@ python server/serveur.py --serial-port /dev/cu.usbmodemXXXXX --udp-port 10000
 - `docs/protocole-radio-final.md` : specification finale radio, UART et UDP
 - `docs/workflow-android-passerelle.md` : integration Android <-> serveur <-> micro:bit
 - `docs/compte-rendu-realisation-radio-capteur-securite.md` : historique technique et choix d'implementation
+- `docs/Rapport_Mini_Projet_IOT.pdf` : rapport synthetique fourni pour le rendu
 
-## 7. Fichiers principaux de ce repo
+## 7. Documentation du code sur l'ensemble du workspace
+Le code final est reparti sur deux depots du workspace.
+
+Documentation a consulter selon la brique :
+- `README.md` : vue globale firmware micro:bit
+- `../iot-project/README.md` : vue globale serveur + Android
+- `../iot-project/server/README.md` : passerelle Python UDP/UART
+- `../iot-project/android/README.md` : application Android
+
+## 8. Fichiers principaux de ce repo
 - `source/main.cpp` : firmware sender
 - `source/main2.cpp` : firmware receiver
 - `source/build_role.h` : selection du role au build
@@ -120,7 +130,7 @@ python server/serveur.py --serial-port /dev/cu.usbmodemXXXXX --udp-port 10000
 - `config.json` : desactivation du Bluetooth
 - `Makefile` : build/flash sender et receiver
 
-## 8. Etat du projet
+## 9. Etat du projet
 Le projet est fonctionnel de bout en bout dans sa version finale :
 - le sender envoie des mesures reelles
 - le receiver confirme la reception et exporte les valeurs vers le PC
