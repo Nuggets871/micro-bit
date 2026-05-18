@@ -15,9 +15,10 @@ const int ACK_WAIT_MS = 700;
 const int POLL_DELAY_MS = 50;
 const char *PROTOCOL_PREFIX = "IOT1|";
 const char *SHARED_SECRET = "MB26";
-const char *FIRMWARE_TAG = "S5";
+const char *FIRMWARE_TAG = "S6";
 
 MicroBit uBit;
+char currentDisplayOrder[8] = "TLHP";
 
 uint16_t computeAuthTag(const char *body) {
     uint32_t hash = 2166136261u;
@@ -41,6 +42,19 @@ void buildAuthenticatedMessage(const char *body, char *messageBuffer, size_t mes
 
 bool hasProtocolPrefix(const ManagedString &message) {
     return message.length() >= 5 && strncmp(message.toCharArray(), PROTOCOL_PREFIX, 5) == 0;
+}
+
+bool tryReceiveRadioMessage(ManagedString *message) {
+    PacketBuffer packet = uBit.radio.datagram.recv();
+
+    // The DAL uses a 1-byte EmptyPacket sentinel when no radio frame is queued.
+    if (packet.length() <= 1) {
+        *message = ManagedString();
+        return false;
+    }
+
+    *message = ManagedString(packet);
+    return true;
 }
 
 bool extractValidatedBody(const ManagedString &message, char *bodyBuffer, size_t bodyBufferSize) {
@@ -93,11 +107,113 @@ void showErrorMarker() {
     uBit.display.image.setPixelValue(4, 4, 255);
 }
 
+bool validateDisplayOrder(const char *order) {
+    bool seenTemperature = false;
+    bool seenLight = false;
+    bool seenHumidity = false;
+    bool seenPressure = false;
+    size_t length = strlen(order);
+
+    if (length == 0 || length > 4) {
+        return false;
+    }
+
+    for (size_t i = 0; i < length; ++i) {
+        switch (order[i]) {
+            case 'T':
+                if (seenTemperature) return false;
+                seenTemperature = true;
+                break;
+            case 'L':
+                if (seenLight) return false;
+                seenLight = true;
+                break;
+            case 'H':
+                if (seenHumidity) return false;
+                seenHumidity = true;
+                break;
+            case 'P':
+                if (seenPressure) return false;
+                seenPressure = true;
+                break;
+            default:
+                return false;
+        }
+    }
+
+    return true;
+}
+
+void applyDisplayOrder(const char *order) {
+    strncpy(currentDisplayOrder, order, sizeof(currentDisplayOrder) - 1);
+    currentDisplayOrder[sizeof(currentDisplayOrder) - 1] = '\0';
+    uBit.serial.send("CFG appliquee: ");
+    uBit.serial.send(ManagedString(currentDisplayOrder));
+    uBit.serial.send("\r\n");
+    uBit.display.scroll(currentDisplayOrder);
+}
+
+bool handleControlBody(const char *body) {
+    int sequence = 0;
+    char order[8];
+
+    if (sscanf(body, "IOT1|G:%d|%7s", &sequence, order) != 2) {
+        return false;
+    }
+
+    if (!validateDisplayOrder(order)) {
+        uBit.serial.send("CFG rejetee: ordre invalide\r\n");
+        return true;
+    }
+
+    applyDisplayOrder(order);
+
+    char ackBody[32];
+    char ackMessage[40];
+    snprintf(ackBody, sizeof(ackBody), "%sK:%d|%s", PROTOCOL_PREFIX, sequence, currentDisplayOrder);
+    buildAuthenticatedMessage(ackBody, ackMessage, sizeof(ackMessage));
+    uBit.radio.datagram.send(ManagedString(ackMessage));
+    uBit.serial.send("TX CFG-ACK: ");
+    uBit.serial.send(ManagedString(ackMessage));
+    uBit.serial.send("\r\n");
+    return true;
+}
+
+void processPendingRadioMessages() {
+    while (true) {
+        ManagedString incoming;
+        if (!tryReceiveRadioMessage(&incoming)) {
+            return;
+        }
+
+        if (!hasProtocolPrefix(incoming)) {
+            continue;
+        }
+
+        char bodyBuffer[32];
+        if (!extractValidatedBody(incoming, bodyBuffer, sizeof(bodyBuffer))) {
+            uBit.serial.send("RX rejetee: auth invalide\r\n");
+            continue;
+        }
+
+        if (!handleControlBody(bodyBuffer)) {
+            uBit.serial.send("RX ignoree: ");
+            uBit.serial.send(ManagedString(bodyBuffer));
+            uBit.serial.send("\r\n");
+        }
+    }
+}
+
 bool waitForAck(const char *expectedAckBody) {
     char bodyBuffer[32];
 
     for (int elapsed = 0; elapsed < ACK_WAIT_MS; elapsed += POLL_DELAY_MS) {
-        ManagedString incoming = uBit.radio.datagram.recv();
+        ManagedString incoming;
+
+        if (!tryReceiveRadioMessage(&incoming)) {
+            uBit.sleep(POLL_DELAY_MS);
+            continue;
+        }
 
         if (!hasProtocolPrefix(incoming)) {
             uBit.sleep(POLL_DELAY_MS);
@@ -114,6 +230,11 @@ bool waitForAck(const char *expectedAckBody) {
             uBit.serial.send("RX: ");
             uBit.serial.send(incoming + "\r\n");
             return true;
+        }
+
+        if (handleControlBody(bodyBuffer)) {
+            uBit.sleep(POLL_DELAY_MS);
+            continue;
         }
 
         if (incoming.length() > 0) {
@@ -162,7 +283,10 @@ int main() {
     uBit.display.scroll(FIRMWARE_TAG);
     uBit.serial.send("BOOT: ");
     uBit.serial.send(ManagedString(FIRMWARE_TAG));
-    uBit.serial.send(" GROUP=83 PREFIX=IOT1| MODE=SEC\r\n");
+    uBit.serial.send(" GROUP=83 PREFIX=IOT1| MODE=SEC+CFG\r\n");
+    uBit.serial.send("CFG ordre initial: ");
+    uBit.serial.send(ManagedString(currentDisplayOrder));
+    uBit.serial.send("\r\n");
     if (environmentSensorReady) {
         uBit.serial.send("SENSOR: BME280 OK\r\n");
     } else {
@@ -180,6 +304,7 @@ int main() {
         char messageBuffer[40];
         char ackBodyBuffer[24];
 
+        processPendingRadioMessages();
         readSensors(&environmentSensor, environmentSensorReady, &temperature, &lightLevel, &humidity, &pressure);
         snprintf(bodyBuffer, sizeof(bodyBuffer), "%sD:%d|%d|%d|%d|%d", PROTOCOL_PREFIX, sequence, temperature, lightLevel, humidity, pressure);
         snprintf(ackBodyBuffer, sizeof(ackBodyBuffer), "%sA:%d", PROTOCOL_PREFIX, sequence);

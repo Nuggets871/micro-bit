@@ -20,7 +20,7 @@ Fichier principal:
 - source/main.cpp
 
 Version finale:
-- S5
+- S6
 
 ### 2.2 Receiver
 Le receiver est la carte qui:
@@ -33,7 +33,7 @@ Fichier principal:
 - source/main2.cpp
 
 Version finale:
-- R5
+- R6
 
 ## 3. Parametres radio
 - Groupe radio: 83
@@ -71,7 +71,7 @@ Exemple:
 IOT1|D:18|22|0|51|987
 ```
 
-### 5.2 Corps d'une trame d'ACK
+### 5.2 Corps d'une trame d'ACK data
 
 ```text
 IOT1|A:<sequence>
@@ -83,7 +83,31 @@ Exemple:
 IOT1|A:18
 ```
 
-### 5.3 Trame finale authentifiee
+### 5.3 Corps d'une trame de configuration
+
+```text
+IOT1|G:<sequence>|<ordre_affichage>
+```
+
+Exemple:
+
+```text
+IOT1|G:12|TLHP
+```
+
+### 5.4 Corps d'un ACK de configuration
+
+```text
+IOT1|K:<sequence>|<ordre_affichage>
+```
+
+Exemple:
+
+```text
+IOT1|K:12|TLHP
+```
+
+### 5.5 Trame finale authentifiee
 Chaque corps de message est complete par un tag hexadecimal de 16 bits:
 
 ```text
@@ -122,7 +146,7 @@ Le sender considere une trame d'ACK valide seulement si:
 Message de boot attendu:
 
 ```text
-BOOT: S5 GROUP=83 PREFIX=IOT1| MODE=SEC
+BOOT: S6 GROUP=83 PREFIX=IOT1| MODE=SEC+CFG
 ```
 
 Message capteur attendu:
@@ -141,7 +165,7 @@ SENSOR: BME280 ABSENT, fallback temp interne
 Message de boot attendu:
 
 ```text
-BOOT: R5 GROUP=83 PREFIX=IOT1| MODE=SEC
+BOOT: R6 GROUP=83 PREFIX=IOT1| MODE=SEC+UART
 ```
 
 ## 8. Procedure de build
@@ -190,7 +214,7 @@ Pour quitter screen:
 ### 11.1 Sender
 
 ```text
-BOOT: S5 GROUP=83 PREFIX=IOT1| MODE=SEC
+BOOT: S6 GROUP=83 PREFIX=IOT1| MODE=SEC+CFG
 SENSOR: BME280 OK
 TX: IOT1|D:18|22|0|51|987|C6CEE
 RX: IOT1|A:18|C5574
@@ -199,7 +223,7 @@ RX: IOT1|A:18|C5574
 ### 11.2 Receiver
 
 ```text
-BOOT: R5 GROUP=83 PREFIX=IOT1| MODE=SEC
+BOOT: R6 GROUP=83 PREFIX=IOT1| MODE=SEC+UART
 RX: IOT1|D:18|22|0|51|987|C6CEE
 TX: IOT1|A:18|C5574
 DATA T=22C L=0 H=51% P=987hPa
@@ -213,7 +237,21 @@ DATA T=22C L=0 H=51% P=987hPa
 - pression: pression en hPa
 - CXXXX: tag d'integrite/authentification
 
-## 13. Problemes connus et solutions
+## 13. Lignes UART machine vers le PC
+Le receiver emet aussi des lignes machine lisibles par le serveur PC:
+
+```text
+DATA|18|22|0|51|987
+CFG-ACK|12|TLHP
+```
+
+Le PC peut envoyer au receiver des commandes UART comme:
+
+```text
+CFG|TLHP
+```
+
+## 14. Problemes connus et solutions
 ### 13.1 Finder se bloque apres flash
 Solution pratique:
 - debrancher/rebrancher la carte
@@ -227,18 +265,18 @@ Le projet desactive le Bluetooth via config.json, ce qui est necessaire avec le 
 
 ### 13.4 Une carte semble encore en ancienne version
 Verifier les messages de boot:
-- S5 pour le sender
-- R5 pour le receiver
+- S6 pour le sender
+- R6 pour le receiver
 
-## 14. Limites actuelles
+## 15. Limites actuelles
 - pas d'identifiant objet
 - pas de chiffrement fort
 - secret partage en dur
 - anti-replay simple
-- pas encore de transmission UART vers le serveur dans la version finale documentee ici
+- repo Android non accessible depuis ce conteneur, donc pas encore audite ici
 
-## 15. Prochaine etape recommandee
+## 16. Prochaine etape recommandee
 La suite naturelle du projet est:
-- transformer le receiver en vraie passerelle UART vers PC
+- verifier l'application Android sur le protocole UDP du serveur
 - stocker les trames cote serveur
-- ajouter la configuration Android
+- ajouter l'identifiant d'objet pour supporter plusieurs noeuds

@@ -3,6 +3,7 @@
     "workspaceFolder": "/workspaces/",
     "remoteUser": "ubuntu",
     "mounts": [
-        "source=/Volumes,target=/host/Volumes,type=bind,consistency=cached"
+        "source=/Volumes,target=/host/Volumes,type=bind,consistency=cached",
+        "source=/Users/nuggets/dev/iot-project,target=/workspaces/iot-project,type=bind,consistency=cached"
     ]
 }
