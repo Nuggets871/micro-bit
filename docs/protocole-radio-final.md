@@ -1,282 +1,297 @@
-# Protocole radio final et procedure de test
+# Protocoles finaux - radio, UART et UDP
 
-## 1. But du document
-Ce document formalise le protocole radio final valide dans le projet ainsi que la procedure de build, flash et test.
+## 1. Objet du document
+Ce document formalise la specification finale des echanges utilises dans le projet :
+- radio entre sender et receiver
+- UART entre receiver et PC
+- UDP entre serveur et Android
 
-Il sert de reference rapide pour:
-- la demo
-- la reprise du projet
-- la documentation finale
+Il complete le guide pratique en decrivant le protocole de facon normative.
 
-## 2. Roles des cartes
-### 2.1 Sender
-Le sender est la carte qui:
-- lit les capteurs
-- construit une trame de donnees
-- envoie la trame par radio
-- attend un ACK
+## 2. Versions validees
+- firmware sender : `S6`
+- firmware receiver : `R6`
+- serveur PC : `iot-project/server/serveur.py`
+- application Android : `iot-project/android`
 
-Fichier principal:
-- source/main.cpp
+## 3. Parametres communs
+### 3.1 Radio micro:bit
+- groupe radio : `83`
+- bande radio : `7`
+- puissance radio : `7`
 
-Version finale:
-- S6
+### 3.2 Prefixe et securite
+- prefixe de protocole : `IOT1|`
+- secret partage : `MB26`
+- tag d'integrite : suffixe `|CXXXX`
 
-### 2.2 Receiver
-Le receiver est la carte qui:
-- recoit les trames radio
-- verifie leur integrite
-- affiche les donnees sur UART
-- renvoie un ACK
+Le tag est calcule a partir du corps du message et du secret partage avec une variante simple de FNV-1a sur 16 bits.
+Cette protection vise l'integrite et l'authentification legere, pas un chiffrement fort.
 
-Fichier principal:
-- source/main2.cpp
+## 4. Donnees transportees
+Le systeme transporte quatre mesures :
+- temperature en degres Celsius
+- luminosite lue sur la micro:bit
+- humidite relative en pourcentage
+- pression en hPa
 
-Version finale:
-- R6
-
-## 3. Parametres radio
-- Groupe radio: 83
-- Bande radio: 7
-- Puissance radio: 7
-- Prefixe de protocole: IOT1|
-- Secret partage: MB26
-
-## 4. Capteurs transportes
-Le sender transmet les donnees suivantes:
-- Temperature en degres Celsius
-- Luminosite du micro:bit
-- Humidite en pourcentage
-- Pression en hPa
-
-Source des donnees:
-- temperature, humidite, pression: capteur BME280 externe
-- luminosite: micro:bit
-
-Fallback si le BME280 n'est pas detecte:
-- temperature interne du micro:bit
+Si le capteur BME280 n'est pas disponible :
+- temperature = capteur interne micro:bit
 - humidite = -1
 - pression = -1
 
-## 5. Format des messages
-### 5.1 Corps d'une trame de donnees
+## 5. Couche radio
+### 5.1 Trame de donnees sender -> receiver
+Corps :
 
 ```text
-IOT1|D:<sequence>|<temperature>|<lumiere>|<humidite>|<pression>
+IOT1|D:<sequence>|<temperature>|<light>|<humidity>|<pressure>
 ```
 
-Exemple:
+Trame finale :
 
 ```text
-IOT1|D:18|22|0|51|987
+IOT1|D:69|25|98|42|996|CE90B
 ```
 
-### 5.2 Corps d'une trame d'ACK data
+### 5.2 Trame d'ACK receiver -> sender
+Corps :
 
 ```text
 IOT1|A:<sequence>
 ```
 
-Exemple:
+Trame finale :
 
 ```text
-IOT1|A:18
+IOT1|A:69|C1AA3
 ```
 
-### 5.3 Corps d'une trame de configuration
+### 5.3 Trame de configuration receiver -> sender
+Corps :
 
 ```text
-IOT1|G:<sequence>|<ordre_affichage>
+IOT1|G:<sequence>|<order>
 ```
 
-Exemple:
+Exemple :
 
 ```text
-IOT1|G:12|TLHP
+IOT1|G:12|TLHP|CXXXX
 ```
 
-### 5.4 Corps d'un ACK de configuration
+### 5.4 ACK de configuration sender -> receiver
+Corps :
 
 ```text
-IOT1|K:<sequence>|<ordre_affichage>
+IOT1|K:<sequence>|<order>
 ```
 
-Exemple:
+Exemple :
 
 ```text
-IOT1|K:12|TLHP
+IOT1|K:12|TLHP|CXXXX
 ```
 
-### 5.5 Trame finale authentifiee
-Chaque corps de message est complete par un tag hexadecimal de 16 bits:
-
-```text
-<corps>|CXXXX
-```
-
-Exemples:
-
-```text
-IOT1|D:18|22|0|51|987|C6CEE
-IOT1|A:18|C5574
-```
-
-## 6. Regles de validation
+## 6. Regles de validation radio
 ### 6.1 Cote receiver
-Le receiver ne traite une trame que si:
-- elle commence par IOT1|
-- elle contient un suffixe |CXXXX
+Une trame de donnees n'est acceptee que si :
+- le prefixe `IOT1|` est present
+- le suffixe `|CXXXX` est present
 - le tag recalcule correspond au tag recu
-- la sequence n'est pas un replay
+- la sequence n'est pas un replay simple
 
-Si la trame est invalide:
-- le receiver affiche DROP: auth invalide
-
-Si la sequence est deja vue:
-- le receiver affiche DROP: replay
+En cas d'erreur :
+- tag invalide -> `DROP: auth invalide`
+- replay -> `DROP: replay`
 
 ### 6.2 Cote sender
-Le sender considere une trame d'ACK valide seulement si:
+Un ACK de donnees est accepte seulement si :
 - le prefixe est correct
 - le tag est valide
-- le corps correspond exactement a IOT1|A:<sequence>
+- le corps correspond exactement a `IOT1|A:<sequence>`
 
-## 7. Firmware et messages de boot
-### 7.1 Sender
-Message de boot attendu:
+Une trame `G:` de configuration est acceptee seulement si :
+- le tag est valide
+- l'ordre demande est compose d'une permutation valide de `T`, `L`, `H`, `P`
 
-```text
-BOOT: S6 GROUP=83 PREFIX=IOT1| MODE=SEC+CFG
-```
-
-Message capteur attendu:
+## 7. Couche UART receiver <-> PC
+### 7.1 Lignes machine receiver -> PC
+Ligne de donnees :
 
 ```text
-SENSOR: BME280 OK
+DATA|69|25|98|42|996
 ```
 
-ou en fallback:
+Ligne d'ACK de configuration :
 
 ```text
-SENSOR: BME280 ABSENT, fallback temp interne
-```
-
-### 7.2 Receiver
-Message de boot attendu:
-
-```text
-BOOT: R6 GROUP=83 PREFIX=IOT1| MODE=SEC+UART
-```
-
-## 8. Procedure de build
-Depuis la racine du projet:
-
-```bash
-cd /workspaces/micro-bit
-make build-sender
-make build-receiver
-```
-
-## 9. Procedure de flash sur macOS
-Important:
-- ne brancher qu'une seule carte micro:bit a la fois
-- verifier qu'un seul volume MICROBIT est monte
-- ne jamais flasher les deux cartes en meme temps
-
-### 9.1 Flasher le receiver
-
-```bash
-cd /workspaces/micro-bit
-make flash-receiver
-```
-
-### 9.2 Flasher le sender
-
-```bash
-cd /workspaces/micro-bit
-make flash-sender
-```
-
-## 10. Procedure de test serie
-Sur le Mac:
-
-```bash
-ls /dev/cu.usbmodem*
-screen /dev/cu.usbmodemXXXXX 115200
-```
-
-Pour quitter screen:
-- Ctrl + A
-- K
-- y
-
-## 11. Resultat attendu en fonctionnement normal
-### 11.1 Sender
-
-```text
-BOOT: S6 GROUP=83 PREFIX=IOT1| MODE=SEC+CFG
-SENSOR: BME280 OK
-TX: IOT1|D:18|22|0|51|987|C6CEE
-RX: IOT1|A:18|C5574
-```
-
-### 11.2 Receiver
-
-```text
-BOOT: R6 GROUP=83 PREFIX=IOT1| MODE=SEC+UART
-RX: IOT1|D:18|22|0|51|987|C6CEE
-TX: IOT1|A:18|C5574
-DATA T=22C L=0 H=51% P=987hPa
-```
-
-## 12. Signification des champs
-- sequence: numero de trame
-- temperature: temperature en degres Celsius
-- lumiere: niveau de lumiere du micro:bit
-- humidite: humidite relative en pourcentage
-- pression: pression en hPa
-- CXXXX: tag d'integrite/authentification
-
-## 13. Lignes UART machine vers le PC
-Le receiver emet aussi des lignes machine lisibles par le serveur PC:
-
-```text
-DATA|18|22|0|51|987
 CFG-ACK|12|TLHP
 ```
 
-Le PC peut envoyer au receiver des commandes UART comme:
+Ligne d'erreur de configuration :
+
+```text
+CFG-ERR|ordre invalide
+```
+
+### 7.2 Lignes de debug receiver -> PC
+Le receiver emet aussi des lignes humaines utiles pour le debug :
+
+```text
+RX: IOT1|D:69|25|98|42|996|CE90B
+TX: IOT1|A:69|C1AA3
+DATA T=25C L=98 H=42% P=996hPa
+```
+
+### 7.3 Commandes PC -> receiver
+Commande principale :
 
 ```text
 CFG|TLHP
 ```
 
-## 14. Problemes connus et solutions
-### 13.1 Finder se bloque apres flash
-Solution pratique:
-- debrancher/rebrancher la carte
-- flasher une seule carte a la fois
+Le receiver accepte aussi directement un ordre brut comme `TLHP`.
 
-### 13.2 Receiver silencieux apres boot
-C'est normal tant qu'aucune trame valide n'est recue.
+## 8. Couche UDP serveur <-> Android
+### 8.1 Commandes supportees par le serveur
+Le serveur accepte :
+- `GET`
+- `getValues()`
+- `GET_VALUES`
+- `subscribe()`
+- `unsubscribe()`
+- `getStatus()`
+- `GET_STATUS`
+- un ordre brut comme `TLH`, `LTH`, `THL`, `TLHP`
+- un ordre prefixe comme `CFG|TLHP`
 
-### 13.3 Messages parasites ou trames vides
-Le projet desactive le Bluetooth via config.json, ce qui est necessaire avec le radio datagram micro:bit.
+### 8.2 Reponse `data`
 
-### 13.4 Une carte semble encore en ancienne version
-Verifier les messages de boot:
-- S6 pour le sender
-- R6 pour le receiver
+```json
+{
+  "type": "data",
+  "sequence": 69,
+  "temperature": 25,
+  "light": 98,
+  "humidity": 42,
+  "pressure": 996,
+  "T": 25,
+  "L": 98,
+  "H": 42,
+  "P": 996
+}
+```
 
-## 15. Limites actuelles
-- pas d'identifiant objet
-- pas de chiffrement fort
-- secret partage en dur
+Le serveur fournit volontairement les noms longs et les clefs courtes pour rester compatible avec l'application Android adaptee.
+
+### 8.3 Reponse `config_sent`
+
+```json
+{
+  "type": "config_sent",
+  "order": "TLH"
+}
+```
+
+### 8.4 Reponse `config_ack`
+
+```json
+{
+  "type": "config_ack",
+  "sequence": 12,
+  "order": "TLH"
+}
+```
+
+### 8.5 Reponse `status`
+
+```json
+{
+  "type": "status",
+  "latest_data": {
+    "type": "data",
+    "sequence": 69,
+    "temperature": 25,
+    "light": 98,
+    "humidity": 42,
+    "pressure": 996,
+    "T": 25,
+    "L": 98,
+    "H": 42,
+    "P": 996
+  },
+  "latest_config_ack": {
+    "sequence": 12,
+    "order": "TLH"
+  },
+  "subscribers": 1
+}
+```
+
+### 8.6 Reponses d'etat ou d'erreur
+
+```json
+{"type": "subscribed"}
+{"type": "unsubscribed"}
+{"type": "error", "message": "no_data_yet"}
+{"type": "error", "message": "unsupported_command"}
+{"type": "config_error", "message": "ordre invalide"}
+```
+
+## 9. Commandes exposees par l'application Android
+L'application Android finale expose dans son interface :
+- le bouton `Get` -> envoie `GET`
+- les boutons `TLH`, `LTH`, `THL`
+
+Le serveur supporte aussi `TLHP`, meme si cette commande n'est pas exposee par un bouton dans l'UI actuelle.
+
+## 10. Messages de boot attendus
+### 10.1 Sender
+
+```text
+BOOT: S6 GROUP=83 PREFIX=IOT1| MODE=SEC+CFG
+CFG ordre initial: TLHP
+SENSOR: BME280 OK
+```
+
+### 10.2 Receiver
+
+```text
+BOOT: R6 GROUP=83 PREFIX=IOT1| MODE=SEC+UART
+UART commandes: CFG|TLHP
+```
+
+## 11. Notes d'implementation importantes
+### 11.1 Bluetooth desactive
+`config.json` desactive explicitement le Bluetooth. C'est indispensable pour utiliser la radio datagram micro:bit de facon fiable.
+
+### 11.2 Piege DAL corrige dans le sender
+Le DAL micro:bit renvoie un `EmptyPacket` de longueur `1` quand aucune trame radio n'est disponible.
+Si on convertit directement ce paquet en `ManagedString`, il peut etre pris a tort pour un message recu.
+
+Le firmware sender final filtre explicitement ce sentinel avant tout traitement radio.
+Sans cette correction, le sender pouvait se bloquer dans sa boucle avant meme le premier `TX:`.
+
+## 12. Validation observee
+Exemple de fonctionnement reel valide :
+
+```text
+TX: IOT1|D:69|25|98|42|996|CE90B
+RX: IOT1|A:69|C1AA3
+```
+
+```text
+RX: IOT1|D:69|25|98|42|996|CE90B
+TX: IOT1|A:69|C1AA3
+DATA T=25C L=98 H=42% P=996hPa
+DATA|69|25|98|42|996
+```
+
+## 13. Limites connues
+- pas d'identifiant d'objet
 - anti-replay simple
-- repo Android non accessible depuis ce conteneur, donc pas encore audite ici
-
-## 16. Prochaine etape recommandee
-La suite naturelle du projet est:
-- verifier l'application Android sur le protocole UDP du serveur
-- stocker les trames cote serveur
-- ajouter l'identifiant d'objet pour supporter plusieurs noeuds
+- pas de chiffrement fort
+- secret partage code en dur
+- l'application Android n'expose pas encore un bouton `TLHP`
+- des valeurs capteur aberrantes peuvent apparaitre ponctuellement et pourraient etre filtrees cote serveur

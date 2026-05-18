@@ -1,266 +1,216 @@
-# Workflow complet Android, serveur, micro:bit et capteur
+# Workflow final Android, serveur et passerelle micro:bit
 
-## 1. But du document
-Ce document explique le workflow complet attendu entre:
-- le capteur et la micro:bit sender
-- la micro:bit receiver branchee au PC
-- le serveur sur le PC
-- l'application Android
+## 1. Objet du document
+Ce document explique la partie haute du systeme :
+- ce qui se passe entre Android et le serveur
+- comment le serveur dialogue avec la micro:bit receiver
+- quelles commandes et quelles reponses sont utilisees
 
-L'objectif est de clarifier qui parle a qui, sous quel format et pour quel usage.
+Le but est de decrire precisement la couche d'integration finale validee.
 
-## 2. Vue globale du systeme
-### 2.1 Micro:bit sender
-La carte sender est l'objet deployee.
+## 2. Fichiers de reference
+Dans le repo `iot-project` :
+- `server/serveur.py` : passerelle UDP <-> UART
+- `android/app/src/main/java/fr/cpe/iotudpapp/ConnectionActivity.kt` : ecran de connexion
+- `android/app/src/main/java/fr/cpe/iotudpapp/MainActivity.kt` : ecran principal
+- `android/app/src/main/res/values/strings.xml` : valeurs par defaut IP/port
 
-Elle:
-- lit le capteur BME280
-- lit la luminosite du micro:bit
-- construit une trame radio securisee
-- envoie cette trame au receiver
-- peut recevoir une configuration d'affichage venant du receiver
+## 3. Role du serveur
+Le serveur est le point de jonction entre le monde embarque et le monde Android.
 
-### 2.2 Micro:bit receiver
-La carte receiver joue le role de passerelle radio.
+Il assure quatre fonctions :
+1. ouvrir le port serie de la micro:bit receiver
+2. lire en continu les lignes `DATA|...` et `CFG-ACK|...`
+3. conserver la derniere mesure connue
+4. parler en UDP avec Android
 
-Elle:
-- recoit les trames radio du sender
-- verifie leur integrite
-- renvoie un ACK radio au sender
-- convertit les donnees en lignes UART pour le PC
-- recoit des commandes UART depuis le PC
-- les transmet par radio au sender
+## 4. Role de l'application Android
+### 4.1 Ecran de connexion
+L'ecran de connexion permet de saisir :
+- l'IP du serveur
+- le port UDP du serveur
 
-### 2.3 Serveur sur le PC
-Le serveur tourne sur le PC relie en USB a la micro:bit receiver.
+Au moment de la validation, l'application :
+- envoie un `GET`
+- attend une reponse UDP non vide
+- ouvre ensuite l'ecran principal si le serveur repond
 
-Il:
-- lit les lignes UART du receiver
-- stocke la derniere mesure recue
-- expose une interface UDP pour l'application Android
-- pousse les commandes Android vers la passerelle micro:bit
+### 4.2 Ecran principal
+L'ecran principal :
+- garde une socket UDP persistante ouverte
+- envoie `subscribe()` et `GET` au demarrage
+- affiche temperature, luminosite, humidite et pression
+- affiche le dernier JSON brut recu
+- envoie `GET` sur le bouton `Get`
+- envoie `TLH`, `LTH` ou `THL` sur les boutons de mode
 
-### 2.4 Application Android
-L'application Android ne parle pas directement a la micro:bit.
+## 5. Sequence complete de connexion Android
+### 5.1 Connexion initiale
+1. l'utilisateur saisit IP et port
+2. l'application envoie `GET`
+3. le serveur repond avec soit la derniere mesure, soit un JSON d'erreur `no_data_yet`
+4. l'application considere que le serveur est joignable si une reponse revient
+5. l'ecran principal s'ouvre
 
-Elle parle au serveur sur le PC en UDP.
+### 5.2 Abonnement aux mises a jour
+Au demarrage de l'ecran principal :
+1. Android ouvre une socket UDP
+2. Android envoie `subscribe()`
+3. Android envoie `GET`
+4. le serveur ajoute le client a sa liste d'abonnes
+5. chaque nouvelle ligne `DATA|...` lue sur l'UART est convertie en JSON et diffusee aux abonnes
 
-Le chemin reel est donc:
+## 6. Messages reseau utilises
+### 6.1 Android -> serveur
+Messages effectivement utilises par l'UI :
+- `GET`
+- `subscribe()`
+- `TLH`
+- `LTH`
+- `THL`
 
-```text
-Android <-> UDP <-> Serveur PC <-> UART USB <-> micro:bit receiver <-> Radio <-> micro:bit sender <-> Capteur
-```
+Messages egalement supportes par le serveur :
+- `unsubscribe()`
+- `getStatus()`
+- `CFG|TLHP`
+- `TLHP`
 
-## 3. Flux montant: capteur vers Android
-### 3.1 Lecture capteur
-Le sender lit:
-- temperature
-- humidite
-- pression
-- lumiere
+### 6.2 Serveur -> Android
+Le serveur peut emettre :
+- `data`
+- `config_sent`
+- `config_ack`
+- `status`
+- `subscribed`
+- `unsubscribed`
+- `error`
+- `config_error`
 
-### 3.2 Trame radio envoyee
-Le sender envoie une trame radio securisee de type data:
-
-```text
-IOT1|D:<sequence>|<temperature>|<lumiere>|<humidite>|<pression>|CXXXX
-```
-
-Exemple:
-
-```text
-IOT1|D:18|22|0|51|987|C6CEE
-```
-
-### 3.3 Reponse du receiver
-Le receiver:
-- verifie le tag
-- parse les donnees
-- renvoie un ACK radio securise
-
-```text
-IOT1|A:18|C5574
-```
-
-### 3.4 Sortie UART du receiver vers le PC
-En plus des logs humains, le receiver emet une ligne machine lisible par le serveur:
-
-```text
-DATA|18|22|0|51|987
-```
-
-### 3.5 Traitement serveur
-Le serveur lit cette ligne UART et met a jour son etat interne.
-
-Ensuite il peut:
-- repondre a un `getValues()` Android
-- pousser automatiquement la nouvelle mesure a un client abonne
-
-### 3.6 Message UDP vers Android
-Le serveur repond en JSON, par exemple:
+## 7. JSON typiques
+### 7.1 Mesure capteur
 
 ```json
 {
   "type": "data",
-  "sequence": 18,
-  "temperature": 22,
-  "light": 0,
-  "humidity": 51,
-  "pressure": 987
+  "sequence": 74,
+  "temperature": 25,
+  "light": 104,
+  "humidity": 42,
+  "pressure": 996,
+  "T": 25,
+  "L": 104,
+  "H": 42,
+  "P": 996
 }
 ```
 
-## 4. Flux descendant: Android vers micro:bit
-### 4.1 But fonctionnel
-L'application Android doit pouvoir envoyer une configuration d'affichage au sender.
+### 7.2 Commande acceptee par le serveur
 
-Dans l'enonce, cela correspond par exemple a des ordres du type:
-- TLH
-- LTH
-- TLPH
-
-## 4.2 Message Android vers serveur
-Le serveur accepte:
-- une commande brute comme `TLHP`
-- ou une commande prefixed comme `CFG|TLHP`
-
-### 4.3 Serveur vers receiver sur UART
-Le serveur transforme la demande en commande UART:
-
-```text
-CFG|TLHP
+```json
+{
+  "type": "config_sent",
+  "order": "TLH"
+}
 ```
 
-### 4.4 Receiver vers sender en radio
-Le receiver construit une trame radio securisee de configuration:
-
-```text
-IOT1|G:<sequence>|TLHP|CXXXX
-```
-
-### 4.5 Sender applique la configuration
-Le sender:
-- verifie le tag
-- verifie que l'ordre est valide
-- applique la configuration
-- renvoie un ACK de configuration
-
-```text
-IOT1|K:<sequence>|TLHP|CXXXX
-```
-
-### 4.6 Receiver vers serveur
-Le receiver convertit cet ACK en ligne UART machine:
-
-```text
-CFG-ACK|12|TLHP
-```
-
-### 4.7 Serveur vers Android
-Le serveur peut renvoyer un JSON du type:
+### 7.3 ACK de configuration revenu du sender
 
 ```json
 {
   "type": "config_ack",
   "sequence": 12,
-  "order": "TLHP"
+  "order": "TLH"
 }
 ```
 
-## 5. Ce que disent les composants
-### 5.1 Sender radio
-- `IOT1|D:...|CXXXX` pour les donnees
-- `IOT1|K:...|CXXXX` pour ACK de configuration
-
-### 5.2 Receiver radio
-- `IOT1|A:...|CXXXX` pour ACK des donnees
-- `IOT1|G:...|CXXXX` pour les commandes de configuration
-
-### 5.3 Receiver UART vers PC
-- `DATA|seq|temp|light|hum|press`
-- `CFG-ACK|seq|order`
-- `CFG-ERR|...`
-
-### 5.4 PC vers receiver UART
-- `CFG|TLHP`
-
-### 5.5 Android vers serveur UDP
-- `getValues()` pour lire la derniere mesure
-- `subscribe()` pour recevoir les updates push
-- `TLHP` ou `CFG|TLHP` pour envoyer une configuration d'affichage
-
-## 6. Workflow reel a executer
-### 6.1 Flasher le receiver
-
-```bash
-cd /workspaces/micro-bit
-make flash-receiver
-```
-
-Attendu au boot:
+## 8. Logs attendus cote serveur
+### 8.1 Reception des donnees micro:bit
 
 ```text
-BOOT: R6 GROUP=83 PREFIX=IOT1| MODE=SEC+UART
-UART commandes: CFG|TLHP
+SERIAL> RX: IOT1|D:74|25|104|42|996|C764A
+SERIAL> TX: IOT1|A:74|CE124
+SERIAL> DATA T=25C L=104 H=42% P=996hPa
+SERIAL> DATA|74|25|104|42|996
 ```
 
-### 6.2 Flasher le sender
-
-```bash
-cd /workspaces/micro-bit
-make flash-sender
-```
-
-Attendu au boot:
+### 8.2 Activite Android
 
 ```text
-BOOT: S6 GROUP=83 PREFIX=IOT1| MODE=SEC+CFG
-CFG ordre initial: TLHP
-SENSOR: BME280 OK
+UDP<10.42.233.42:51234> GET
+UDP<10.42.233.42:51234> subscribe()
+UDP<10.42.233.42:51234> TLH
 ```
 
-### 6.3 Lancer le serveur PC
+### 8.3 Retour de configuration
 
-```bash
-python3 tools/gateway_server.py --serial-port /dev/cu.usbmodemXXXXX --udp-port 10000
+```text
+SERIAL> CFG-ACK|12|TLH
 ```
 
-Note:
-- le port serie doit etre celui de la micro:bit receiver branchee au PC
-- il faut avoir `pyserial` installe
+## 9. Reseau et adressage
+### 9.1 Smartphone reel
+Sur un smartphone physique, l'application doit utiliser l'adresse IP locale du PC qui lance le serveur.
 
-## 7. Attendus pour l'application Android
-L'application Android doit au minimum:
-- permettre de renseigner IP et port du serveur
-- envoyer des datagrammes UDP au serveur
-- parser les JSON recus
-- proposer une commande `getValues()`
-- proposer une commande de configuration d'affichage
+Exemple reel valide :
+- `10.42.233.151`
 
-Si l'application sait deja:
-- faire du UDP client
-- envoyer des strings
-- recevoir des reponses JSON
+Cette valeur depend du reseau du moment. Elle doit etre adaptee a chaque environnement.
 
-alors elle peut communiquer avec le systeme mis en place ici.
+### 9.2 Emulateur Android
+Si l'application tourne dans un emulateur Android local sur la meme machine que le serveur, `10.0.2.2` peut etre utilise comme IP du host.
 
-## 8. Limite actuelle importante
-Le repo Android indique par l'utilisateur n'est pas accessible dans ce conteneur.
+### 9.3 Port
+Le port UDP utilise par defaut est `10000`.
 
-Consequence:
-- le contrat serveur <-> Android a ete defini et implemente cote micro:bit + serveur
-- mais le code exact de l'application Android n'a pas pu etre audite ni adapte ici
+## 10. Valeurs par defaut dans l'application
+Les valeurs par defaut de l'ecran de connexion se trouvent dans :
+- `android/app/src/main/res/values/strings.xml`
 
-Pour finaliser l'integration Android, il faudra soit:
-- monter ce repo Android dans l'environnement actuel
-- soit copier ses fichiers utiles dans le workspace
+Variables importantes :
+- `default_ip`
+- `default_port`
 
-## 9. Resultat final de cette etape
-Ce qui est maintenant pret:
-- sender capable de lire le capteur et d'envoyer les donnees
-- receiver capable de faire la passerelle radio vers UART
-- sender capable de recevoir une configuration radio
-- receiver capable de recevoir une configuration par UART
-- serveur PC capable de faire le pont UART <-> UDP
+L'IP par defaut actuelle `10.0.2.2` est adaptee a l'emulateur, pas a un smartphone reel.
+Pour un usage repetitif sur le meme reseau Wi-Fi, cette valeur peut etre modifiee dans `strings.xml`.
 
-Il ne manque donc plus, pour valider l'ensemble Android, que l'adaptation ou la verification du code de l'application elle-meme.
+## 11. Gestion de l'ordre d'affichage
+### 11.1 Ce que le serveur accepte
+Le serveur accepte tout ordre valide compose sans doublon parmi `T`, `L`, `H`, `P`, avec longueur 1 a 4.
+
+Exemples valides :
+- `TLH`
+- `LTH`
+- `THL`
+- `TLHP`
+
+### 11.2 Ce que l'UI expose aujourd'hui
+L'UI Android expose trois presets :
+- `TLH`
+- `LTH`
+- `THL`
+
+Le protocole et le serveur savent faire plus, mais l'interface actuelle reste volontairement simple.
+
+## 12. Depannage Android/serveur
+### 12.1 L'ecran de connexion refuse de passer
+Verifier :
+- l'IP du serveur
+- le port `10000`
+- que le serveur Python tourne encore
+- que le smartphone est sur le meme reseau que le PC
+
+### 12.2 L'ecran principal s'ouvre mais les mesures restent vides
+Verifier :
+- que le serveur affiche bien des lignes `SERIAL> DATA|...`
+- que le serveur voit des messages `UDP<...> subscribe()`
+- que la receiver est bien branchee et que la sender reste alimentee
+
+### 12.3 La commande de mode ne fait rien
+Verifier :
+- qu'un `UDP<...> TLH` ou equivalent apparait dans le serveur
+- qu'un `CFG-ACK|...` revient ensuite sur le port serie
+- que la configuration demandee est bien valide
+
+## 13. Conclusion
+La couche Android <-> serveur <-> receiver est finalisee.
+Android ne parle jamais directement au sender. Toute la logique passe par le serveur UDP/UART, ce qui simplifie le systeme et rend le debug reproductible.

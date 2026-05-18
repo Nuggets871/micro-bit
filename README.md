@@ -1,115 +1,134 @@
-# microbit-samples
+# Mini architecture IoT micro:bit - Version finale
 
-A collection of example programs using the micro:bit runtime.
+Ce depot ne sert plus de collection generique d'exemples micro:bit.
+Il contient le firmware embarque final du mini-projet IoT valide en demonstration.
 
-The source/examples folder contains a selection of samples demonstrating the capabilities and usage of the runtime APIs.
-To select a sample, simply copy the .cpp files from the relevant folder into the source/ folder.
+Le systeme complet est compose de deux depots du workspace :
+- `micro-bit` : firmwares micro:bit sender et receiver, protocole radio, build et flash
+- `iot-project` : serveur Python UDP/UART et application Android
 
-e.g. to select the "invaders" example:
+## 1. Vue d'ensemble
+Architecture finale validee :
 
-```
-cp source/examples/invaders/* source
-```
-
-and then to compile your sample:
-
-```
-yt clean
-yt build
-```
-
-The HEX file for you micro:bit with then be generated and stored in build\bbc-microbit-classic-gcc\source\microbit-samples-combined.hex
-
-n.b. Any samples using the low level RADIO APIs (such as simple-radio-rx and simple-radio-tx) require the bluetooth capabilities of the
-micro:bit to be disabled. To do this, simply copy the config.json file from the sample to the top level of your project. Don't forget to
-remove this file again later if you then want to use Bluetooth! For example:
-
-
-```
-cp source/examples/simple-radio-rx/config.json .
+```text
+Capteur BME280 + micro:bit sender
+            |
+            v
+      Radio micro:bit
+            |
+            v
+micro:bit receiver + UART USB
+            |
+            v
+   Serveur Python sur le PC
+            |
+            v
+      Application Android
 ```
 
+Fonctions validees :
+- lecture de temperature, luminosite, humidite et pression
+- transmission radio securisee sender -> receiver
+- ACK radio retour receiver -> sender
+- export UART receiver -> PC
+- pont UDP/UART cote serveur
+- affichage des mesures sur Android
+- envoi d'une configuration d'affichage depuis Android vers le sender
 
-## Overview
+## 2. Materiel reel utilise
+- 2 cartes micro:bit
+- 1 breadboard
+- 4 fils
+- 1 capteur Techno-Innov compatible BME280
+- 1 Mac hote avec conteneur Linux pour le firmware
 
-The micro:bit runtime provides an easy to use environment for programming the BBC micro:bit in the C/C++ language, written by Lancaster University. It contains device drivers for all the hardware capabilities of the micro:bit, and also a suite of runtime mechanisms to make programming the micro:bit easier and more flexible. These range from control of the LED matrix display to peer-to-peer radio communication and secure Bluetooth Low Energy services. The micro:bit runtime is proudly built on the ARM mbed and Nordic nrf51 platforms.
+## 3. Firmware valide
+- sender : `source/main.cpp` - version `S6`
+- receiver : `source/main2.cpp` - version `R6`
+- groupe radio : `83`
+- bande radio : `7`
+- puissance radio : `7`
+- prefixe de protocole : `IOT1|`
+- secret partage : `MB26`
 
-In addition to supporting development in C/C++, the runtime is also designed specifically to support higher level languages provided by our partners that target the micro:bit. It is currently used as a support library for all the languages on the BBC www.microbit.co.uk website, including Microsoft Block, Microsoft TouchDevelop, Code Kingdoms JavaScript and Micropython languages.
+## 4. Demarrage rapide
+### 4.1 Build et flash du receiver
 
-## Links
-
-[micro:bit runtime docs](http://lancaster-university.github.io/microbit-docs/) | [microbit-dal](https://github.com/lancaster-university/microbit-dal) |  [uBit](https://github.com/lancaster-university/microbit)
-
-## Build Environments
-
-| Build Environment | Documentation |
-| ------------- |-------------|
-| ARM mbed online | http://lancaster-university.github.io/microbit-docs/online-toolchains/#mbed |
-| yotta  | http://lancaster-university.github.io/microbit-docs/offline-toolchains/#yotta |
-
-##  microbit-dal Configuration
-
-The DAL also contains a number of compile time options can be modified. A full list and explanation
-can be found in our [documentation](http://lancaster-university.github.io/microbit-docs/advanced/#compile-time-options-with-microbitconfigh).
-
-Alternately, `yotta` can be used to configure the dal regardless of module/folder structure, through providing a
-`config.json` in this directory.
-
-Here is an example of `config.json` with all available options configured:
-```json
-{
-    "microbit-dal":{
-        "bluetooth":{
-            "enabled": 1,
-            "pairing_mode": 1,
-            "private_addressing": 0,
-            "open": 0,
-            "whitelist": 1,
-            "advertising_timeout": 0,
-            "tx_power": 0,
-            "dfu_service": 1,
-            "event_service": 1,
-            "device_info_service": 1
-        },
-        "reuse_sd": 1,
-        "default_pullmode":"PullDown",
-        "gatt_table_size": "0x300",
-        "heap_allocator": 1,
-        "nested_heap_proportion": 0.75,
-        "system_tick_period": 6,
-        "system_components": 10,
-        "idle_components": 6,
-        "use_accel_lsb": 0,
-        "min_display_brightness": 1,
-        "max_display_brightness": 255,
-        "display_scroll_speed": 120,
-        "display_scroll_stride": -1,
-        "display_print_speed": 400,
-        "panic_on_heap_full": 1,
-        "debug": 0,
-        "heap_debug": 0,
-        "stack_size":2048,
-        "sram_base":"0x20000008",
-        "sram_end":"0x20004000",
-        "sd_limit":"0x20002000",
-        "gatt_table_start":"0x20001900"
-        "radio_max_packet_size":248,
-        "radio_max_rx_buffers":4
-    }
-}
+```bash
+cd /workspaces/micro-bit
+make flash-receiver
 ```
-##  Debug on Visual Studio Code (Windows)
 
-1. build sample. You can build "HELLO WORLD! :)" program.
-2. Copy microbit-samples\build\bbc-microbit-classic-gcc\source\microbit-samples-combined.hex to micro:bit.
-3. Launch the Visual Studio Code
-4. File -> Open Folder... and select "microbit-samples" folder.
-5. Set break point to "main()" function.
-6. View -> Debug (Ctrl + Shift + D)
-7. Debug -> Start Debugging (F5)
+Boot attendu :
 
-![Debug on Visual Studio Code](/debugOnVisualStudioCode.gif)
+```text
+BOOT: R6 GROUP=83 PREFIX=IOT1| MODE=SEC+UART
+UART commandes: CFG|TLHP
+```
 
-## BBC Community Guidelines
+### 4.2 Build et flash du sender
 
-[BBC Community Guidelines](https://www.microbit.co.uk/help#sect_cg)
+```bash
+cd /workspaces/micro-bit
+make flash-sender
+```
+
+Boot attendu :
+
+```text
+BOOT: S6 GROUP=83 PREFIX=IOT1| MODE=SEC+CFG
+CFG ordre initial: TLHP
+SENSOR: BME280 OK
+```
+
+### 4.3 Lancement du serveur sur le PC hote
+
+Depuis le repo `iot-project` :
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install pyserial
+python server/serveur.py --serial-port /dev/cu.usbmodemXXXXX --udp-port 10000
+```
+
+### 4.4 Connexion Android
+- IP : adresse IP locale du PC qui lance le serveur
+- Port : `10000`
+- l'application envoie `GET` pour tester la connexion puis `subscribe()` a l'ouverture de l'ecran principal
+
+## 5. Points d'attention importants
+- le Bluetooth doit rester desactive dans `config.json` pour utiliser la radio bas niveau micro:bit
+- ne flasher qu'une seule carte a la fois
+- la receiver doit rester branchee en USB au PC pour le serveur
+- la sender peut etre alimentee par un autre port USB ou une batterie
+- le build Android doit etre fait sur la machine hote si le conteneur n'a pas Java/Android SDK
+
+## 6. Documents de reference
+- `docs/projet-mini-architecture-iot.md` : vue d'ensemble fonctionnelle et perimetre final
+- `docs/guide-implementation-iot.md` : procedure complete de montage, flash, serveur et Android
+- `docs/protocole-radio-final.md` : specification finale radio, UART et UDP
+- `docs/workflow-android-passerelle.md` : integration Android <-> serveur <-> micro:bit
+- `docs/compte-rendu-realisation-radio-capteur-securite.md` : historique technique et choix d'implementation
+
+## 7. Fichiers principaux de ce repo
+- `source/main.cpp` : firmware sender
+- `source/main2.cpp` : firmware receiver
+- `source/build_role.h` : selection du role au build
+- `source/bme280.h` et `source/bme280.cpp` : wrappers du driver capteur
+- `config.json` : desactivation du Bluetooth
+- `Makefile` : build/flash sender et receiver
+
+## 8. Etat du projet
+Le projet est fonctionnel de bout en bout dans sa version finale :
+- le sender envoie des mesures reelles
+- le receiver confirme la reception et exporte les valeurs vers le PC
+- le serveur diffuse les donnees vers Android
+- Android affiche les mesures et envoie les ordres de configuration
+
+Les ameliorations restantes sont du polish, pas des blocages :
+- filtrage des valeurs aberrantes du capteur
+- support de plusieurs objets
+- secret partage configurable
+- ajout d'un vrai module OLED si souhaite

@@ -1,294 +1,216 @@
-# Compte-rendu technique - Realisation radio, capteur et securisation
+# Compte-rendu technique final - radio, capteur, securisation et integration complete
 
 ## 1. Objet du document
-Ce document explique en detail ce qui a ete implemente dans le projet pendant la phase objet radio du mini-projet IoT.
+Ce document raconte la realisation technique du projet dans l'ordre chronologique, jusqu'a la version finale fonctionnelle.
 
-Le but de cette phase etait de valider, dans cet ordre:
-- la communication radio entre deux micro:bit
-- l'envoi de vraies donnees capteur
-- l'ajout d'une couche simple de securisation des trames
+Il sert a expliquer :
+- les choix d'architecture
+- les principaux problemes rencontres
+- les corrections apportees
+- le resultat final obtenu
 
-Le resultat final est une communication fiable entre deux cartes micro:bit, avec accusés de reception, donnees environnementales et verification d'integrite.
-
-## 2. Materiel reel utilise
-- 2 cartes micro:bit
+## 2. Contexte reel du projet
+### 2.1 Materiel
+- 2 micro:bit
 - 1 breadboard
-- 4 cables
-- 1 capteur meteo Techno-Innov base sur BME280
-- 1 Mac hote, avec le projet execute dans un conteneur Linux
+- 4 fils
+- 1 capteur Techno-Innov compatible BME280
+- 1 Mac hote et un conteneur Linux pour la compilation
 
-## 3. Architecture finale validee
-### 3.1 Repartition des roles
-- Micro:bit A : objet emetteur, appele sender
-- Micro:bit B : objet recepteur/passerelle radio, appele receiver
+### 2.2 Objectif
+Construire une mini architecture IoT complete capable de :
+- lire des mesures environnementales
+- transmettre ces mesures d'une micro:bit sender a une micro:bit receiver
+- remonter les valeurs jusqu'au PC et a Android
+- renvoyer une configuration d'affichage depuis Android jusqu'au sender
 
-### 3.2 Role du sender
-- lire les mesures capteur
-- construire une trame radio
-- envoyer la trame
-- attendre un ACK valide
+## 3. Premiere etape : separer les roles sender / receiver
+Au depart, le repo etait celui de `microbit-samples` et ne proposait pas une separation propre entre deux firmwares differents.
 
-### 3.3 Role du receiver
-- recevoir les trames radio
-- verifier leur integrite
-- extraire les donnees
-- renvoyer un ACK
-- afficher les donnees sur la sortie serie
+Le premier travail a donc ete :
+- creer un sender dans `source/main.cpp`
+- creer un receiver dans `source/main2.cpp`
+- introduire `source/build_role.h`
+- adapter le `Makefile` pour produire des artefacts distincts
 
-## 4. Fichiers importants du projet
-- source/main.cpp : firmware sender final
-- source/main2.cpp : firmware receiver final
-- source/bme280.h : wrapper local du driver capteur
-- source/bme280.cpp : wrapper local du driver capteur
-- source/examples/bme280/bme280.h : driver BME280 fourni dans le repo
-- source/examples/bme280/bme280.cpp : implementation du driver BME280 fourni dans le repo
-- config.json : desactivation du Bluetooth pour liberer la radio bas niveau
-- Makefile : cibles de build et flash pour sender et receiver
+Commandes finales obtenues :
+- `make build-sender`
+- `make build-receiver`
+- `make flash-sender`
+- `make flash-receiver`
 
-## 5. Chronologie de la realisation
-### 5.1 Separation des deux firmwares
-Au debut, le projet ne gerait pas proprement deux micro:bit differents avec deux roles differents.
-
-Nous avons separe les roles en deux firmwares:
-- un sender dans source/main.cpp
-- un receiver dans source/main2.cpp
-
-Le fichier source/build_role.h permet de choisir quel fichier expose la fonction main lors du build.
-
-Le Makefile a ensuite ete adapte pour fournir des cibles distinctes:
-- make build-sender
-- make build-receiver
-- make flash-sender
-- make flash-receiver
-
-## 5.2 Probleme de flash sur macOS
-Le poste de travail etait un Mac, alors que le code tournait dans un conteneur Linux.
-
-Deux difficultes ont ete rencontrees:
-- les volumes des cartes micro:bit apparaissaient tous sous le nom MICROBIT
+## 4. Deuxieme etape : fiabiliser le flash sur macOS
+Le workflow de flash a pose des problemes concrets :
+- les deux cartes montaient toutes deux sous le nom `MICROBIT`
 - Finder pouvait se bloquer apres plusieurs copies
+- il etait facile de croire qu'on venait de flasher une carte alors que l'autre etait en fait montee
 
-La methode de travail qui s'est revelee fiable est la suivante:
-- ne brancher qu'une seule carte micro:bit a la fois lors du flash
-- verifier qu'un seul volume MICROBIT est monte
-- flasher la carte voulue
-- debrancher, puis brancher l'autre carte
+La methode fiable qui a ete retenue est restee la meme jusqu'a la fin :
+- brancher une seule carte a la fois pendant le flash
+- verifier le volume monte
+- flasher
+- debrancher
+- passer a l'autre carte
 
-Ce point est important car un faux succes de flash peut arriver si les deux cartes sont branchees ou si la mauvaise carte est montee.
+## 5. Troisieme etape : faire marcher la radio brute
+La premiere verification utile a ete une communication radio minimale entre les deux cartes.
 
-## 5.3 Premier protocole radio de validation
-La premiere etape a consiste a valider la radio seule, sans capteur.
+Le protocole a ensuite ete stabilise autour de :
+- groupe `83`
+- bande `7`
+- puissance `7`
+- prefixe `IOT1|`
 
-Le sender envoyait:
-- IOT1|PING:n
+Un point bloquant a ete rapidement identifie :
+- tant que le Bluetooth n'etait pas desactive, la radio datagram micro:bit etait instable
 
-Le receiver repondait:
-- IOT1|ACK:n
+La solution finale a ete d'ajouter `config.json` pour desactiver le Bluetooth.
 
-Cette etape a permis de valider:
-- la couche radio bas niveau
-- le bon groupe radio
-- le bon cablage materiel global
-- la stabilite du workflow de flash et de debug serie
+## 6. Quatrieme etape : transporter de vraies mesures
+Une fois la radio fonctionnelle, le sender a ete etendu pour envoyer des donnees utiles.
 
-## 5.4 Probleme radio critique: Bluetooth actif
-Un probleme important a ete rencontre pendant les premiers essais:
-- des messages vides ou parasites apparaissaient
-- les ACK ne revenaient pas correctement
-
-La cause etait connue dans l'ecosysteme micro:bit:
-- l'utilisation du radio datagram bas niveau est incompatible avec le Bluetooth actif
-
-La correction a consiste a ajouter un fichier config.json a la racine avec:
-
-```json
-{
-  "microbit-dal": {
-    "bluetooth": {
-      "enabled": 0
-    }
-  }
-}
-```
-
-Apres cette correction, la radio est devenue exploitable.
-
-## 5.5 Stabilisation du protocole radio
-Pour reduire les collisions et le bruit radio, plusieurs choix ont ete fixes:
-- groupe radio: 83
-- bande radio: 7
-- puissance d'emission: 7
-- prefixe de protocole: IOT1|
-
-Le prefixe IOT1| permet de filtrer les trames qui ne font pas partie du protocole du projet.
-
-## 5.6 Correction d'un bug de parsing
-Pendant les premiers tests du receiver, la carte recevait bien les trames, mais ne renvoyait pas d'ACK.
-
-La cause etait un bug dans l'utilisation de ManagedString::substring(start, length):
-- la fonction attend une longueur
-- le code lui donnait un comportement equivalent a un index de fin
-
-Apres correction, le receiver a recommence a generer correctement les ACK.
-
-## 5.7 Passage de PING/ACK a DATA/ACK
-Une fois la radio validee, le protocole a ete etendu pour transporter de vraies donnees.
-
-La premiere version data utilisait:
-- temperature interne du micro:bit
-- niveau de lumiere du micro:bit
-
-Les trames resemblaient a:
-
-```text
-IOT1|D:98|T:29|L:0
-```
-
-Puis le protocole a ete simplifie vers une forme plus compacte pour tenir proprement dans les paquets radio:
-
-```text
-IOT1|D:98|29|0|51|987
-```
-
-Cette version compacte a servi de base a la couche de securisation finale.
-
-## 5.8 Integration du capteur externe BME280
-Une fois la radio stable, le sender a ete relie au capteur externe Techno-Innov base sur BME280.
-
-Le projet contenait deja un exemple BME280 dans:
-- source/examples/bme280/bme280.h
-- source/examples/bme280/bme280.cpp
-
-Plutot que de conserver un driver maison fragile, le projet a reutilise ce driver existant a travers deux wrappers locaux:
-- source/bme280.h
-- source/bme280.cpp
-
-Le sender lit alors:
+Le sender lit :
 - temperature
 - humidite
 - pression
-- luminosite du micro:bit
+- luminosite
 
-En cas d'absence du capteur, un fallback est prevu:
-- temperature interne du micro:bit
-- humidite = -1
-- pression = -1
+Le driver retenu a finalement ete celui deja present dans `source/examples/bme280`, reintegre via des wrappers locaux `source/bme280.h` et `source/bme280.cpp`.
 
-## 5.9 Ajout d'une couche simple de securite
-La derniere etape de cette phase a ete la securisation des trames radio.
+En cas d'absence du capteur, un fallback reste prevu sur la temperature interne.
 
-Le choix retenu est volontairement simple et compatible avec le niveau du projet:
-- secret partage entre sender et receiver
-- calcul d'un tag d'integrite a partir du contenu du message
+## 7. Cinquieme etape : ajouter la securisation simple
+Le choix retenu pour la securite a ete volontairement leger, car il devait rester compatible avec le micro:bit classic :
+- secret partage fixe `MB26`
+- calcul d'un tag 16 bits a partir du corps du message
+- suffixe `|CXXXX`
 - verification du tag a la reception
-- rejet des trames invalides
-- protection anti-replay simple cote receiver
+- anti-replay simple cote receiver
 
-Le secret partage choisi est:
-- MB26
+Ce mecanisme a suffi pour :
+- filtrer les trames invalides
+- garantir que l'ACK recu par le sender correspond bien a la trame envoyee
 
-Le tag est calcule avec une variante simple basee sur FNV-1a 16 bits.
+## 8. Sixieme etape : integrer la configuration d'affichage
+Le sender ne devait pas seulement envoyer des donnees. Il devait aussi accepter une commande descendante.
 
-Chaque trame finale contient:
-- un corps de message
-- un suffixe |CXXXX avec XXXX en hexadecimal
+Le chemin final valide est :
+- Android envoie `TLH`, `LTH`, `THL` ou `CFG|...`
+- le serveur ecrit `CFG|ordre` sur l'UART
+- le receiver traduit cela en `IOT1|G:...|ordre|CXXXX`
+- le sender applique l'ordre et renvoie `IOT1|K:...|ordre|CXXXX`
+- le receiver emet `CFG-ACK|seq|ordre`
+- le serveur pousse un JSON `config_ack` a Android
 
-Exemple:
+Dans la maquette finale, l'ordre est memorise par le sender et confirme sur la matrice LED et la sortie serie.
 
-```text
-IOT1|D:15|22|0|51|987|C8961
-```
+## 9. Septieme etape : relier le receiver au PC
+La micro:bit receiver a ensuite ete transformee en vraie passerelle UART :
+- sorties humaines `RX: ...`, `TX: ...`, `DATA T=...`
+- sorties machine `DATA|...`, `CFG-ACK|...`, `CFG-ERR|...`
 
-Le receiver verifie le tag avant de traiter la trame.
-Le sender verifie aussi que l'ACK recu est bien authentifie.
+Cela a permis au PC de devenir independant du protocole radio interne.
 
-## 6. Protocole final valide
-### 6.1 Parametres radio
-- groupe: 83
-- bande: 7
-- puissance: 7
+## 10. Huitieme etape : aligner le serveur et Android
+Le projet a ensuite franchi la derniere couche : l'integration du repo `iot-project`.
 
-### 6.2 Prefixe de protocole
-- IOT1|
+Le serveur final a ete implemente dans `iot-project/server/serveur.py`.
 
-### 6.3 Trame de donnees
-Format logique du corps:
+Il :
+- lit l'UART du receiver
+- conserve la derniere mesure
+- accepte `GET`, `subscribe()`, `getStatus()` et les ordres d'affichage
+- diffuse les mesures et les ACK de configuration en JSON
 
-```text
-IOT1|D:<sequence>|<temperature>|<lumiere>|<humidite>|<pression>
-```
+L'application Android a ete relue et adaptee pour :
+- garder une socket UDP persistante
+- s'abonner au serveur au demarrage
+- afficher temperature, luminosite, humidite et pression
+- envoyer des ordres `TLH`, `LTH`, `THL`
 
-Puis ajout du tag final:
+## 11. Dernier bug critique trouve juste avant la validation finale
+Le symptome etait trompeur :
+- le sender ne montrait que son boot
+- aucun `TX:` n'apparaissait ensuite
+- le receiver restait muet apres son boot
 
-```text
-IOT1|D:<sequence>|<temperature>|<lumiere>|<humidite>|<pression>|CXXXX
-```
+Le probleme n'etait ni le capteur, ni la radio, ni le serveur.
 
-### 6.4 Trame d'ACK
-Format logique du corps:
+La vraie cause etait un detail du DAL micro:bit :
+- `uBit.radio.datagram.recv()` renvoie un `EmptyPacket` de longueur `1` quand aucune trame n'est disponible
+- le sender convertissait ce paquet en `ManagedString`
+- ce faux message vide faisait tourner la boucle de lecture radio a vide avant meme le premier envoi
 
-```text
-IOT1|A:<sequence>
-```
+La correction finale a consiste a filtrer explicitement ce sentinel dans le sender avant tout traitement radio.
 
-Puis ajout du tag final:
+Apres cette correction :
+- le sender a recommence a emettre
+- le receiver a recommence a ack-er
+- le serveur a vu immediatement les lignes `DATA|...`
 
-```text
-IOT1|A:<sequence>|CXXXX
-```
-
-## 7. Resultat final obtenu
-Le systeme final valide les points suivants:
-- le sender lit le capteur externe
-- le sender envoie les donnees par radio
-- le receiver recoit les donnees
-- le receiver verifie le tag d'integrite
-- le receiver extrait temperature, lumiere, humidite et pression
-- le receiver renvoie un ACK authentifie
-- le sender valide l'ACK recu
-
-Exemple de logs valides cote receiver:
+## 12. Validation finale observee
+### 12.1 Cote sender
 
 ```text
-RX: IOT1|D:14|22|0|51|987|C8CA0
-TX: IOT1|A:14|C99C4
-DATA T=22C L=0 H=51% P=987hPa
+TX: IOT1|D:69|25|98|42|996|CE90B
+RX: IOT1|A:69|C1AA3
 ```
 
-Exemple de logs valides cote sender:
+### 12.2 Cote receiver
 
 ```text
-TX: IOT1|D:14|22|0|51|987|C8CA0
-RX: IOT1|A:14|C99C4
+RX: IOT1|D:69|25|98|42|996|CE90B
+TX: IOT1|A:69|C1AA3
+DATA T=25C L=98 H=42% P=996hPa
+DATA|69|25|98|42|996
 ```
 
-## 8. Bilan technique
-### 8.1 Ce qui est valide
-- communication radio bidirectionnelle
-- build et flash distincts pour les deux cartes
-- transport de donnees capteur
-- ACK fiables
-- desactivation du Bluetooth pour liberer la radio
-- lecture du capteur BME280
-- verification d'integrite des trames
+### 12.3 Cote serveur
 
-### 8.2 Limites actuelles
-- pas encore d'identifiant objet pour gerer plusieurs noeuds
-- pas encore de chiffrement fort
-- secret partage en dur dans le firmware
-- anti-replay volontairement simple
-- pas encore de pont complet receiver -> UART -> serveur dans l'etat final S5/R5
+```text
+SERIAL> DATA|69|25|98|42|996
+```
 
-## 9. Conclusion
-Cette phase du projet peut etre consideree comme reussie.
+### 12.4 Cote Android
+Validation attendue et obtenue dans la version finale :
+- connexion a l'IP/port du serveur
+- affichage des mesures
+- envoi d'une configuration de mode
+- retour `config_ack`
 
-Le resultat final est une mini-architecture radio micro:bit capable de:
-- collecter des mesures reelles
-- transporter ces mesures entre deux cartes
-- confirmer leur reception
-- appliquer une securisation simple mais fonctionnelle
+## 13. Ce qui est considere comme termine
+- build et flash separes sender / receiver
+- radio sender -> receiver stable
+- ACK radio retour stable
+- lecture capteur BME280
+- export UART du receiver
+- serveur UDP/UART final
+- application Android connectee au serveur
+- configuration descendante Android -> sender
 
-Cette base est suffisante pour passer a l'etape suivante du mini-projet:
-- integration passerelle UART/serveur
-- support multi-objets
-- application Android et configuration distante
+## 14. Lecons apprises
+- toujours desactiver le Bluetooth pour la radio datagram micro:bit
+- ne jamais flasher les deux cartes a la fois sur macOS
+- bien distinguer le port serie du sender et celui du receiver
+- garder des logs de boot explicites (`S6`, `R6`)
+- ne pas supposer qu'un `recv()` vide renvoie une longueur nulle sans verifier l'implementation du DAL
+
+## 15. Limites residuelles non bloquantes
+- pas de support multi-objet
+- securite volontairement simple
+- pas de chiffrement fort
+- secret partage code en dur
+- pas de filtrage automatique des outliers capteur
+- pas d'OLED physique dans la maquette finale
+
+## 16. Conclusion
+Le projet peut etre considere comme finalise fonctionnellement.
+
+La chaine complete suivante a ete demontree :
+
+```text
+capteur -> sender -> radio -> receiver -> UART -> serveur -> UDP -> Android
+Android -> UDP -> serveur -> UART -> receiver -> radio -> sender
+```
+
+Le resultat final est coherent avec le cahier des charges pedagogique, adapte au materiel reellement disponible, et suffisamment robuste pour une demonstration complete.

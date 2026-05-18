@@ -1,202 +1,281 @@
-# Guide d'implementation - Mini architecture IoT (micro:bit)
+# Guide d'implementation final - micro:bit, serveur et Android
 
-## 1. But du document
-Ce document explique comment realiser concrètement le TP IoT avec le code du projet, de la carte micro:bit jusqu'au serveur et a l'application Android.
+## 1. Objet du document
+Ce guide explique pas a pas comment reproduire l'installation complete qui a ete validee :
+- montage du capteur
+- build et flash des deux micro:bit
+- lancement du serveur Python
+- connexion de l'application Android
+- test de bout en bout
 
-Il complete le document de cadrage:
-- docs/projet-mini-architecture-iot.md
+Il s'agit du document pratique de reference pour rejouer la demo.
 
-Documents de reference sur l'etat final valide:
-- docs/compte-rendu-realisation-radio-capteur-securite.md
-- docs/protocole-radio-final.md
+## 2. Prerequis
+### 2.1 Repos utilises
+- repo firmware : `micro-bit`
+- repo serveur + Android : `iot-project`
 
-## 1.1 Materiel disponible (votre groupe)
-- 2 cartes micro:bit
-- 1 breadboard
-- 4 cables
-- 1 capteur TemperatureTechno Inov
+### 2.2 Outils et environnement
+- conteneur Linux pour compiler le firmware micro:bit
+- yotta deja installe dans le conteneur
+- Mac ou machine hote pour lancer le serveur et Android Studio
+- Python 3 sur la machine hote
+- `pyserial` installe dans un environnement virtuel Python
 
-Consequences pratiques:
-- Une micro:bit peut etre dediee a l'objet capteur
-- Une micro:bit peut etre dediee a la passerelle USB vers PC
-- Le cablage doit rester minimal et stable (seulement 4 cables)
+### 2.3 Contraintes a respecter
+- une seule micro:bit branchee a la fois pendant le flash
+- la receiver doit rester branchee au PC pendant l'execution du serveur
+- la sender doit rester alimentee en meme temps que la receiver
+- Android et le PC doivent etre sur le meme reseau local
 
-## 2. Architecture retenue
-### 2.1 Composants
-- Objet: micro:bit + capteur TemperatureTechno Inov (+ OLED si disponible)
-- Passerelle radio: seconde micro:bit connectee en USB au PC
-- Serveur: script Python sur PC
-- Client: application Android
+## 3. Montage materiel
+### 3.1 Repartition des roles
+- micro:bit A : sender
+- micro:bit B : receiver
 
-### 2.2 Liaisons
-- Objet <-> Passerelle: radio 2.4 GHz (groupe radio commun)
-- Passerelle <-> Serveur: UART sur USB (115200 bauds)
-- Android <-> Serveur: UDP (port 10000 par defaut)
+### 3.2 Cablage du capteur sur la sender
+Montage I2C retenu avec 4 fils :
+- `3V` micro:bit -> `VCC` capteur
+- `GND` micro:bit -> `GND` capteur
+- `P20` micro:bit -> `SDA` capteur
+- `P19` micro:bit -> `SCL` capteur
 
-### 2.3 Repartition recommandee des 2 micro:bit
-- Micro:bit A (objet): lit le capteur TemperatureTechno Inov et envoie les mesures en radio
-- Micro:bit B (passerelle): recoit la radio et transfere sur UART vers le serveur, puis renvoie les configurations vers A
+Si le capteur n'est pas reconnu, le firmware bascule en mode fallback :
+- temperature = capteur interne micro:bit
+- humidite = -1
+- pression = -1
 
-## 3. Etat actuel du code dans ce repo
-L'etat final valide du repo n'est plus un simple bridge radio/serie.
+## 4. Build et flash du firmware
+### 4.1 Build du receiver
 
-Le projet implemente maintenant deux firmwares distincts:
-- source/main.cpp : sender final S5
-- source/main2.cpp : receiver final R5
-
-Fonctionnement actuel:
-- radio bidirectionnelle sur le groupe 83
-- prefixe de protocole IOT1|
-- lecture du capteur BME280 cote sender
-- envoi des donnees T, L, H, P
-- ACK retour cote receiver
-- verification d'un tag d'integrite sur chaque trame
-
-Voir pour le detail complet:
-- docs/compte-rendu-realisation-radio-capteur-securite.md
-- docs/protocole-radio-final.md
-
-## 4. Build et flash
-### 4.1 Compiler
-Depuis la racine du projet:
 ```bash
-make build-sender
+cd /workspaces/micro-bit
 make build-receiver
 ```
 
-### 4.2 Flasher la carte
+### 4.2 Flash du receiver
+Brancher uniquement la micro:bit receiver, puis :
+
 ```bash
+cd /workspaces/micro-bit
 make flash-receiver
+```
+
+Boot attendu :
+
+```text
+BOOT: R6 GROUP=83 PREFIX=IOT1| MODE=SEC+UART
+UART commandes: CFG|TLHP
+```
+
+### 4.3 Build du sender
+
+```bash
+cd /workspaces/micro-bit
+make build-sender
+```
+
+### 4.4 Flash du sender
+Debrancher la receiver, brancher uniquement la sender, puis :
+
+```bash
+cd /workspaces/micro-bit
 make flash-sender
 ```
 
-Le workflow recommande sur macOS est:
-- brancher une seule carte micro:bit a la fois
-- flasher le receiver
-- debrancher la carte
-- brancher le sender
-- flasher le sender
+Boot attendu :
 
-Le Makefile gere une copie locale vers le volume MICROBIT expose dans le conteneur.
-
-### 4.3 Verification serie (Linux/macOS)
-Verifier le port:
-```bash
-ls /dev/cu.usbmodem* /dev/ttyACM* 2>/dev/null
+```text
+BOOT: S6 GROUP=83 PREFIX=IOT1| MODE=SEC+CFG
+CFG ordre initial: TLHP
+SENSOR: BME280 OK
 ```
 
-Exemple de connexion terminal:
+### 4.5 Pourquoi une seule carte a la fois
+Cette discipline evite trois erreurs frequentes :
+- flasher la mauvaise carte
+- croire qu'un flash a reussi alors qu'une autre carte etait montee
+- confondre les ports serie sender et receiver
+
+## 5. Verification serie locale
+### 5.1 Identifier les ports serie
+Sur macOS :
+
+```bash
+ls /dev/cu.usbmodem*
+```
+
+Sur Linux :
+
+```bash
+ls /dev/ttyACM*
+```
+
+### 5.2 Lire les logs d'une carte
+
 ```bash
 screen /dev/cu.usbmodemXXXXX 115200
 ```
 
-Sortie de screen:
-- Ctrl + A puis Ctrl + K puis confirmer avec y
+Pour quitter `screen` :
+- `Ctrl + A`
+- `K`
+- `y`
 
-## 5. Protocole de messages conseille
-## 5.1 Version 1 (simple texte)
-Format recommande:
+### 5.3 Logs attendus en fonctionnement normal
+Sender :
+
 ```text
-TYPE;OBJECT_ID;TIMESTAMP;PAYLOAD
+TX: IOT1|D:68|25|106|42|996|CXXXX
+RX: IOT1|A:68|CXXXX
 ```
 
-Exemples:
+Receiver :
+
 ```text
-DATA;OBJ01;1710000000;T=23.4;L=460;H=48
-CFG;OBJ01;1710000012;ORDER=TLH
+RX: IOT1|D:68|25|106|42|996|CXXXX
+TX: IOT1|A:68|CXXXX
+DATA T=25C L=106 H=42% P=996hPa
+DATA|68|25|106|42|996
 ```
 
-## 5.2 Version 2 (JSON)
-Option d'evolution:
-```json
-{
-  "type": "DATA",
-  "object_id": "OBJ01",
-  "timestamp": 1710000000,
-  "values": {"T": 23.4, "L": 460, "H": 48, "P": 1012}
-}
+## 6. Lancement du serveur Python
+### 6.1 Pourquoi un environnement virtuel Python
+Sur macOS avec Python gere par Homebrew, `pip install` global peut echouer avec l'erreur `externally-managed-environment`.
+La solution propre est d'utiliser un venv.
+
+### 6.2 Creation du venv
+Depuis le repo `iot-project` sur la machine hote :
+
+```bash
+cd /chemin/vers/iot-project
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install pyserial
 ```
 
-## 6. Plan d'implementation par brique
-## 6.1 Objet (micro:bit capteur + OLED)
-- Lire periodiquement les capteurs
-- Encoder les donnees (brut puis JSON)
-- Envoyer par radio a la passerelle
-- Ecouter les messages CFG
-- Mettre a jour l'ordre d'affichage OLED
+### 6.3 Lancement du serveur
+La receiver doit etre la carte branchee au PC.
 
-Contraintes de cablage (4 cables):
-- Prioriser VCC, GND et une liaison de donnees stable selon l'interface du capteur
-- Eviter les montages complexes sur breadboard pour limiter les faux contacts
+```bash
+python server/serveur.py --serial-port /dev/cu.usbmodemXXXXX --udp-port 10000
+```
 
-## 6.2 Passerelle micro:bit
-- Garder le bridge radio/serie deja implemente
-- Ajouter un filtrage par object_id si necessaire
-- Ajouter une validation minimale de trame
+### 6.4 Ce que le serveur doit afficher
+Au demarrage :
 
-## 6.3 Serveur
-- Lire UART en continu
-- Sauvegarder les donnees brutes
-- Ecouter UDP sur 10000
-- Repondre a getValues()
-- Relayer les ordres d'affichage recus depuis Android vers UART
+```text
+Gateway server started
+```
 
-Reference de depart:
-- https://github.com/CPELyon/4irc-aiot-mini-projet/blob/master/controller.py
+Puis, si la radio fonctionne :
 
-## 6.4 Application Android
-- Formulaire IP + port
-- Ecran ordre d'affichage (T, L, H, P...)
-- Envoi UDP de la configuration
-- Reception UDP des donnees depuis le serveur
-- Filtrage source (IP/port serveur configure)
+```text
+SERIAL> RX: IOT1|D:69|25|98|42|996|CE90B
+SERIAL> TX: IOT1|A:69|C1AA3
+SERIAL> DATA T=25C L=98 H=42% P=996hPa
+SERIAL> DATA|69|25|98|42|996
+```
 
-## 7. Scenarios de test
-### 7.1 Test passerelle seule
-- Envoyer une ligne sur UART
-- Verifier emission radio cote objet de test
-- Envoyer une trame radio
-- Verifier apparition sur UART
+Si le serveur ne montre que `Gateway server started`, le probleme est avant lui :
+- mauvaise carte branchee
+- sender non alimentee
+- radio qui ne tourne pas
 
-### 7.2 Test bout en bout sans Android
-- Objet envoie DATA
-- Serveur recoit et stocke
-- Injection manuelle d'une CFG vers UART
-- Objet met a jour OLED
+## 7. Application Android
+### 7.1 Emplacement du code
+Le code Android final se trouve dans `iot-project/android`.
 
-### 7.3 Test complet
-- Android envoie un nouvel ordre (ex: LTH)
-- Serveur transmet vers passerelle
-- Objet applique l'ordre
-- Android recoit les DATA renvoyees par serveur
+### 7.2 Build recommande
+Le plus simple est d'utiliser Android Studio sur la machine hote.
 
-## 8. Gestion multi-objets
-Pour supporter plusieurs objets:
-- Rendre object_id obligatoire
-- Stockage par object_id cote serveur
-- Routage CFG cible par object_id
-- Interface Android avec selection d'objet
+Alternative ligne de commande si Java et Android SDK sont deja installes :
 
-## 9. Robustesse minimale
-- Timeout de lecture UART/radio
-- Rejet des trames invalides
-- Journal de traces serveur
-- Controle d'integrite (checksum/CRC)
+```bash
+cd /chemin/vers/iot-project/android
+bash ./gradlew assembleDebug
+```
 
-## 10. Livrables a fournir
-- Rapport synthese (>= 2 pages)
-- Code objet documente
-- Code passerelle documente
-- Application serveur documentee
-- Application Android documentee
-- Demonstration 10 minutes
+### 7.3 Parametres a saisir dans l'application
+- IP : adresse IP locale du PC qui lance le serveur
+- Port : `10000`
 
-## 11. Checklist avant demo
-- Build et flash valides
-- UART stable a 115200
-- Envoi/reception radio ok
-- Commande getValues() ok
-- Changement d'ordre OLED depuis Android ok
-- Affichage des mesures sur smartphone ok
-- Cablage capteur valide et reproductible avec 4 cables
-- Identification claire des roles micro:bit A (objet) et micro:bit B (passerelle)
+Cas reel sur smartphone :
+- utiliser l'IP LAN du PC, par exemple `10.42.233.151`
+
+Cas emulation Android sur la meme machine :
+- `10.0.2.2` peut servir d'adresse par defaut
+
+### 7.4 Comportement normal de l'application
+Ecran de connexion :
+- envoie `GET` pour verifier que le serveur repond
+
+Ecran principal :
+- ouvre une socket UDP persistante
+- envoie `subscribe()` et `GET`
+- affiche temperature, luminosite, humidite et pression
+- permet d'envoyer `TLH`, `LTH` ou `THL`
+
+## 8. Scenario de test complet
+### 8.1 Preparation
+1. flasher la receiver
+2. flasher la sender
+3. laisser la receiver branchee au PC
+4. alimenter la sender
+5. lancer le serveur
+
+### 8.2 Verification micro:bit -> serveur
+Le serveur doit afficher des lignes `DATA|...` en continu.
+
+### 8.3 Verification serveur -> Android
+1. connecter Android a l'IP du PC et au port `10000`
+2. verifier que les mesures s'affichent
+3. verifier que le terminal serveur montre des lignes `UDP<...> GET` puis `UDP<...> subscribe()`
+
+### 8.4 Verification Android -> sender
+1. appuyer sur `TLH`, `LTH` ou `THL` dans Android
+2. verifier que le serveur affiche la commande UDP
+3. verifier qu'un `CFG-ACK|...` revient sur l'UART
+4. verifier que l'application passe a l'etat `Configuration appliquee`
+
+## 9. Depannage
+### 9.1 Sender et receiver affichent seulement leur boot
+Verifier :
+- que la sender est bien alimentee en continu
+- que les deux firmwares flashes sont les bons
+- que la sender a bien ete reflashee avec la version finale actuelle
+
+### 9.2 Le sender affiche `ACK non recu`
+Verifier :
+- la presence du receiver
+- la proximite entre les cartes
+- le bon groupe radio
+- l'absence d'ancien firmware sur une des cartes
+
+### 9.3 Le serveur ne voit pas `DATA|...`
+Verifier :
+- que le port serie appartient bien au receiver
+- que `screen` ou un autre terminal n'utilise pas deja ce port
+- que la sender tourne et envoie bien ses trames
+
+### 9.4 Android ne se connecte pas
+Verifier :
+- la bonne IP du PC
+- le port `10000`
+- le reseau Wi-Fi commun entre smartphone et PC
+- l'absence de firewall bloquant l'UDP
+
+### 9.5 Une valeur capteur aberrante apparait une fois
+Une valeur isolee anormale peut encore apparaitre ponctuellement.
+Ce n'est pas bloquant pour la demo tant que les trames suivantes redeviennent coherentes.
+
+## 10. Checklist finale avant rendu
+- sender en `S6`
+- receiver en `R6`
+- radio stable avec ACK
+- lignes `DATA|...` visibles dans le serveur
+- Android connecte au serveur
+- affichage des mesures OK
+- commande TLH/LTH/THL OK
+- procedure de lancement connue par l'equipe
