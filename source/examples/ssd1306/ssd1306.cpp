@@ -27,11 +27,15 @@ int ssd1306::initialize()
     uint8_t val = 0;
     fullscreen = 1;
 
-    reset->setDigitalValue(1);
-    uBit->sleep(1);
-    reset->setDigitalValue(0);
-    uBit->sleep(10);
-    reset->setDigitalValue(1);
+    if (reset != NULL) {
+        reset->setDigitalValue(1);
+        uBit->sleep(1);
+        reset->setDigitalValue(0);
+        uBit->sleep(10);
+        reset->setDigitalValue(1);
+    } else {
+        uBit->sleep(10);
+    }
 
     ret = display_power(SSD130x_DISP_OFF);//AE
     if (ret != 0)
@@ -150,7 +154,7 @@ int ssd1306::send_command(uint8_t cmd, uint8_t* data, uint8_t len)
         }
     }
 
-    ret = i2c->write(SSD130x_ADDR, cmd_buf, 2+(len*2));
+    ret = i2c->write(address, cmd_buf, 2+(len*2));
     if( ret != MICROBIT_OK)
     {
         uBit->display.scroll("Command Error");
@@ -223,7 +227,7 @@ int ssd1306::set_read_direction()
 int ssd1306::set_mux_ratio(uint8_t ratio)
 {
     uint8_t data = SSD130x_MUX_DATA(ratio);
-    return send_command(SSD130x_CMD_PAGE_ADDR, &data, 1);
+    return send_command(SSD130x_CMD_SET_MUX, &data, 1);
 }
 
 int ssd1306::set_display_clock(uint8_t divide, uint8_t frequency)
@@ -269,7 +273,7 @@ int ssd1306::update_screen()
     gddram[0] = SSD130x_DATA_ONLY;
 
     /* Send data on I2C bus */
-    ret = i2c->write(SSD130x_ADDR, (char*) gddram,GDDRAM_SIZE+1);
+    ret = i2c->write(address, (char*) gddram,GDDRAM_SIZE+1);
     if (ret != MICROBIT_OK)
     {
         uBit->display.scroll("Full Screen Error");

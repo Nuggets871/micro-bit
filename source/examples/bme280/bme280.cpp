@@ -51,6 +51,7 @@ bme280::bme280(MicroBit* uB, MicroBitI2C* uBi2c, uint8_t addr, uint8_t humidity_
     if (probe_sensor() != 1) {
         probe_ok = 0;
         uBit->display.scroll("No Device");
+        return;
     }
     /* Send the configuration */
     ret = i2c->write(address, cmd_buf, CONF_BUF_SIZE);
@@ -75,10 +76,10 @@ int bme280::probe_sensor()
     if (probe_ok != 1) {
         i2c->write(address, cmd_buf,1,true);
         int ret = i2c->read(address, (char*)&id, 1);
-        if (ret == MICROBIT_OK && id != BME280_ID) {
-            probe_ok = 0;
+        if (ret == MICROBIT_OK && id == BME280_ID) {
+            probe_ok = 1;
         } else {
-          probe_ok = 1;
+            probe_ok = 0;
         }
     }
     return probe_ok;

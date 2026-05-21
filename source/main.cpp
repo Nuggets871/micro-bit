@@ -1,6 +1,7 @@
 #include "MicroBit.h"
 #include "bme280.h"
 #include "build_role.h"
+#include "ssd1306.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -16,9 +17,16 @@ const int POLL_DELAY_MS = 50;
 const char *PROTOCOL_PREFIX = "IOT1|";
 const char *SHARED_SECRET = "MB26";
 const char *FIRMWARE_TAG = "S6";
+const uint8_t OLED_ADDRESS = SSD130x_ADDR;
 
 MicroBit uBit;
 char currentDisplayOrder[8] = "TLHP";
+ssd1306 *oledScreen = 0;
+int lastTemperature = 0;
+int lastLightLevel = 0;
+int lastHumidity = -1;
+int lastPressure = -1;
+bool hasSensorSnapshot = false;
 
 uint16_t computeAuthTag(const char *body) {
     uint32_t hash = 2166136261u;
@@ -107,6 +115,58 @@ void showErrorMarker() {
     uBit.display.image.setPixelValue(4, 4, 255);
 }
 
+void buildOledMetricLine(char metric, char *lineBuffer, size_t lineBufferSize) {
+    switch (metric) {
+        case 'T':
+            snprintf(lineBuffer, lineBufferSize, "T:%dC", lastTemperature);
+            return;
+        case 'L':
+            snprintf(lineBuffer, lineBufferSize, "L:%d", lastLightLevel);
+            return;
+        case 'H':
+            if (lastHumidity >= 0) {
+                snprintf(lineBuffer, lineBufferSize, "H:%d%%", lastHumidity);
+            } else {
+                snprintf(lineBuffer, lineBufferSize, "H:--");
+            }
+            return;
+        case 'P':
+            if (lastPressure >= 0) {
+                snprintf(lineBuffer, lineBufferSize, "P:%dhPa", lastPressure);
+            } else {
+                snprintf(lineBuffer, lineBufferSize, "P:--");
+            }
+            return;
+        default:
+            snprintf(lineBuffer, lineBufferSize, "?");
+            return;
+    }
+}
+
+void refreshOledDisplay() {
+    if (oledScreen == 0) {
+        return;
+    }
+
+    oledScreen->clear();
+    oledScreen->display_line(0, 0, "ORDRE:");
+    oledScreen->display_line(0, 7, currentDisplayOrder);
+
+    if (!hasSensorSnapshot) {
+        oledScreen->display_line(2, 0, "Attente capteur");
+        oledScreen->update_screen();
+        return;
+    }
+
+    for (size_t index = 0; index < strlen(currentDisplayOrder) && index < 4; ++index) {
+        char lineBuffer[DISPLAY_LINE_LENGTH];
+        buildOledMetricLine(currentDisplayOrder[index], lineBuffer, sizeof(lineBuffer));
+        oledScreen->display_line(index + 2, 0, lineBuffer);
+    }
+
+    oledScreen->update_screen();
+}
+
 bool validateDisplayOrder(const char *order) {
     bool seenTemperature = false;
     bool seenLight = false;
@@ -150,6 +210,7 @@ void applyDisplayOrder(const char *order) {
     uBit.serial.send("CFG appliquee: ");
     uBit.serial.send(ManagedString(currentDisplayOrder));
     uBit.serial.send("\r\n");
+    refreshOledDisplay();
     uBit.display.scroll(currentDisplayOrder);
 }
 
@@ -279,6 +340,8 @@ int main() {
 
     bme280 environmentSensor(&uBit, &uBit.i2c);
     bool environmentSensorReady = environmentSensor.probe_sensor() == 1;
+    ssd1306 oled(&uBit, &uBit.i2c, 0, OLED_ADDRESS);
+    oledScreen = &oled;
 
     uBit.display.scroll(FIRMWARE_TAG);
     uBit.serial.send("BOOT: ");
@@ -292,6 +355,7 @@ int main() {
     } else {
         uBit.serial.send("SENSOR: BME280 ABSENT, fallback temp interne\r\n");
     }
+    refreshOledDisplay();
 
     int sequence = 0;
 
@@ -306,6 +370,12 @@ int main() {
 
         processPendingRadioMessages();
         readSensors(&environmentSensor, environmentSensorReady, &temperature, &lightLevel, &humidity, &pressure);
+        lastTemperature = temperature;
+        lastLightLevel = lightLevel;
+        lastHumidity = humidity;
+        lastPressure = pressure;
+        hasSensorSnapshot = true;
+        refreshOledDisplay();
         snprintf(bodyBuffer, sizeof(bodyBuffer), "%sD:%d|%d|%d|%d|%d", PROTOCOL_PREFIX, sequence, temperature, lightLevel, humidity, pressure);
         snprintf(ackBodyBuffer, sizeof(ackBodyBuffer), "%sA:%d", PROTOCOL_PREFIX, sequence);
         buildAuthenticatedMessage(bodyBuffer, messageBuffer, sizeof(messageBuffer));

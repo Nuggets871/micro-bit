@@ -180,7 +180,7 @@ class ssd1306 {
         /**
          *
          */
-        ssd1306(MicroBit* uB, MicroBitI2C* uBi2c, MicroBitPin* pin_reset,uint8_t addr = SSD130x_ADDR);
+        ssd1306(MicroBit* uB, MicroBitI2C* uBi2c, MicroBitPin* pin_reset = 0, uint8_t addr = SSD130x_ADDR);
 
         /**
          * Power Off the screen
